@@ -10,12 +10,23 @@
 import { describe, expect, it } from 'vitest';
 import { assertLegalMessage } from '../../src/discord/componentLimits.js';
 import {
+  capacityVibeView,
   dayPickerView,
   noWindowsChosenView,
   optedOutView,
+  submittedView,
   windowPickerView,
 } from '../../src/discord/views/availability.view.js';
-import { DAYS, DAYS_PER_PAGE, WINDOWS, type Day, type Window } from '../../src/domain/constants.js';
+import {
+  DAYS,
+  DAYS_PER_PAGE,
+  MAX_VIBE_SELECTIONS,
+  VIBE_TAGS,
+  WINDOWS,
+  type Day,
+  type VibeTag,
+  type Window,
+} from '../../src/domain/constants.js';
 import { parseCustomId } from '../../src/discord/customId.js';
 
 const BASE = {
@@ -185,7 +196,84 @@ describe('windowPickerView', () => {
   });
 });
 
+describe('capacityVibeView', () => {
+  const params = {
+    ...BASE,
+    capacity: undefined,
+    vibes: [] as VibeTag[],
+    slotCount: 12,
+    dayCount: 4,
+  };
+
+  it('is legal with every vibe selected and a maximal draft id', () => {
+    const view = capacityVibeView({
+      ...params,
+      draftId: Number.MAX_SAFE_INTEGER,
+      capacity: 4,
+      vibes: [...VIBE_TAGS].slice(0, MAX_VIBE_SELECTIONS),
+    });
+    expect(() => assertLegalMessage(view, 'capacityVibe')).not.toThrow();
+  });
+
+  it('fits capacity, vibe and navigation into three rows', () => {
+    const parsed = rows(capacityVibeView(params));
+    expect(parsed).toHaveLength(3);
+    expect(parsed[0]!.components).toHaveLength(4); // 1 / 2 / 3 / 4+
+    expect(parsed[1]!.components[0]!.type).toBe(3); // vibe select
+  });
+
+  /**
+   * Capacity is the one genuinely required answer. Disabling Submit until it is
+   * given beats letting the tap fail.
+   */
+  it('disables Submit until a capacity is chosen, then enables it', () => {
+    const before = rows(capacityVibeView(params)).at(-1)!;
+    const after = rows(capacityVibeView({ ...params, capacity: 2 })).at(-1)!;
+
+    const submitOf = (row: RawRow) =>
+      row.components.find(
+        (component) => parseCustomId(component.custom_id!).action === 'submit',
+      ) as { disabled?: boolean };
+
+    expect(submitOf(before).disabled).toBe(true);
+    expect(submitOf(after).disabled).toBeFalsy();
+  });
+
+  it('shows the chosen capacity as the only highlighted button', () => {
+    const capacityRow = rows(capacityVibeView({ ...params, capacity: 3 }))[0]!;
+    const highlighted = capacityRow.components.filter(
+      (component) => (component as { style?: number }).style === 3, // ButtonStyle.Success
+    );
+    expect(highlighted).toHaveLength(1);
+  });
+
+  it('caps vibe selection at the curated maximum', () => {
+    const select = rows(capacityVibeView(params))[1]!.components[0]!;
+    expect(select.options).toHaveLength(VIBE_TAGS.length);
+    expect(select.max_values).toBe(MAX_VIBE_SELECTIONS);
+  });
+
+  it('keeps the escape hatch reachable at the last step', () => {
+    const nav = rows(capacityVibeView(params)).at(-1)!;
+    const actions = nav.components.map((component) => parseCustomId(component.custom_id!).action);
+    expect(actions).toContain('optout');
+  });
+});
+
 describe('terminal views', () => {
+  it('the submitted view reassures about privacy and strips components', () => {
+    const view = submittedView({
+      groupName: 'The Basement',
+      weekStartDate: '2026-08-10',
+      capacity: 2,
+      slotCount: 6,
+      dayCount: 3,
+      vibes: ['chill'],
+    });
+    expect(view.components).toEqual([]);
+    expect(view.content).toMatch(/never your individual picks/);
+  });
+
   it('the opted-out view strips all components, so the flow is visibly over', () => {
     const view = optedOutView({ groupName: 'The Basement', weekStartDate: '2026-08-10' });
     expect(view.components).toEqual([]);

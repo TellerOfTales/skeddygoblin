@@ -19,11 +19,18 @@ import type {
   DraftRecord,
   DraftState,
   GroupRecord,
+  SlotRow,
   UserId,
   UserRecord,
 } from '../db/repositories/types.js';
-import type { Day, Window } from '../domain/constants.js';
-import { isDay, isWindow } from '../domain/constants.js';
+import type { Capacity, Day, VibeTag, Window } from '../domain/constants.js';
+import {
+  isCapacity,
+  isDay,
+  isVibeTag,
+  isWindow,
+  MAX_VIBE_SELECTIONS,
+} from '../domain/constants.js';
 import type { AppContext } from './context.js';
 import { resolveMemberByDiscordId } from './membershipService.js';
 
@@ -168,6 +175,47 @@ export async function setWindowsForDay(
   else next[String(day)] = cleaned;
 
   return drafts.saveDraftState(ctx.db, draft.id, { ...draft.state, windows: next });
+}
+
+export async function setCapacity(
+  ctx: AppContext,
+  draft: DraftRecord,
+  capacity: Capacity,
+): Promise<DraftRecord> {
+  return drafts.saveDraftState(ctx.db, draft.id, { ...draft.state, capacity });
+}
+
+export async function setVibes(
+  ctx: AppContext,
+  draft: DraftRecord,
+  vibes: VibeTag[],
+): Promise<DraftRecord> {
+  const cleaned = [...new Set(vibes.filter(isVibeTag))].slice(0, MAX_VIBE_SELECTIONS);
+  return drafts.saveDraftState(ctx.db, draft.id, { ...draft.state, vibes: cleaned });
+}
+
+export function chosenCapacity(state: DraftState): Capacity | undefined {
+  return isCapacity(state.capacity) ? state.capacity : undefined;
+}
+
+export function chosenVibes(state: DraftState): VibeTag[] {
+  return (state.vibes ?? []).filter(isVibeTag);
+}
+
+/**
+ * Flattens the draft into the slot rows that will be written on submit.
+ *
+ * Days with no windows contribute nothing, which is how "leave a day empty to
+ * skip it" works without a separate deselect step.
+ */
+export function toSlotRows(state: DraftState): SlotRow[] {
+  const rows: SlotRow[] = [];
+  for (const day of selectedDays(state)) {
+    for (const window of windowsForDay(state, day)) {
+      rows.push({ dayOfWeek: day, window });
+    }
+  }
+  return rows;
 }
 
 /**

@@ -9,14 +9,20 @@
  */
 
 import { advisoryXactLock } from '../db/pool.js';
+import * as availability from '../db/repositories/availability.js';
 import * as drafts from '../db/repositories/drafts.js';
+import * as vibes from '../db/repositories/vibes.js';
 import * as weeklyResponses from '../db/repositories/weeklyResponses.js';
 import type {
   DraftRecord,
   GroupId,
+  SlotRow,
   UserId,
   WeeklyResponseRecord,
 } from '../db/repositories/types.js';
+import type { Capacity, VibeTag } from '../domain/constants.js';
+import { isCapacity } from '../domain/constants.js';
+import { DomainError } from '../domain/errors.js';
 import type { IsoDate } from '../domain/week.js';
 import { weekStartDate } from '../domain/week.js';
 import type { AppContext } from './context.js';
@@ -88,6 +94,81 @@ export async function startOrResumeFlow(
     });
     return { draft, existingResponse };
   });
+}
+
+export interface SubmitResult {
+  response: WeeklyResponseRecord;
+  slotsWritten: number;
+  vibesWritten: number;
+}
+
+/**
+ * Finalises the questionnaire.
+ *
+ * All of it lands together or none of it does. The ordering is forced by the
+ * schema: availability_slot and vibe_tag both carry a composite foreign key to
+ * weekly_response, so the parent row must be upserted first - which also means
+ * a failure part-way through cannot leave slots pointing at nothing.
+ *
+ * Takes the same advisory lock as the buzz service, so a member submitting at
+ * the exact moment someone presses Buzz resolves one way or the other rather
+ * than interleaving.
+ */
+export async function submit(
+  ctx: AppContext,
+  params: {
+    userId: UserId;
+    groupId: GroupId;
+    weekStartDate: IsoDate;
+    sessionsCommitted: Capacity;
+    slots: readonly SlotRow[];
+    vibes: readonly VibeTag[];
+    /** Draft to consume. Deleted in the same transaction. */
+    draftId?: number | undefined;
+  },
+): Promise<SubmitResult> {
+  if (params.slots.length === 0) throw new DomainError('NO_DAYS_SELECTED');
+  if (!isCapacity(params.sessionsCommitted)) throw new DomainError('NO_CAPACITY_SELECTED');
+
+  return ctx.db.withTransaction(async (tx) => {
+    await advisoryXactLock(tx, responseLockKey(params.userId));
+
+    const scope = { groupId: params.groupId, weekStartDate: params.weekStartDate };
+
+    const response = await weeklyResponses.submit(tx, params.userId, {
+      ...scope,
+      sessionsCommitted: params.sessionsCommitted,
+    });
+
+    const slotsWritten = await availability.replaceSlotsForSelf(
+      tx,
+      params.userId,
+      scope,
+      params.slots,
+    );
+    const vibesWritten = await vibes.replaceVibesForSelf(tx, params.userId, scope, params.vibes);
+
+    if (params.draftId !== undefined) await drafts.deleteDraft(tx, params.draftId);
+
+    return { response, slotsWritten, vibesWritten };
+  });
+}
+
+/** A member's own complete answer, for the confirmation screen. */
+export async function getOwnSubmission(
+  ctx: AppContext,
+  params: { userId: UserId; groupId: GroupId; weekStartDate: IsoDate },
+): Promise<{
+  response: WeeklyResponseRecord | null;
+  slots: SlotRow[];
+  vibes: VibeTag[];
+}> {
+  const scope = { groupId: params.groupId, weekStartDate: params.weekStartDate };
+  return {
+    response: await weeklyResponses.getResponseForSelf(ctx.db, params.userId, scope),
+    slots: await availability.listSlotsForSelf(ctx.db, params.userId, scope),
+    vibes: await vibes.listVibesForSelf(ctx.db, params.userId, scope),
+  };
 }
 
 /** A member's own answer. Self-scoped: the id is both filter and authorization. */

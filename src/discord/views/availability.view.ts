@@ -24,14 +24,22 @@ import {
   type InteractionUpdateOptions,
 } from 'discord.js';
 import {
+  CAPACITY_LABELS,
+  CAPACITY_OPTIONS,
   DAYS,
   DAY_LABELS,
   DAY_SHORT,
   DAYS_PER_PAGE,
+  MAX_VIBE_SELECTIONS,
+  VIBE_DESCRIPTIONS,
+  VIBE_LABELS,
+  VIBE_TAGS,
   WINDOWS,
   WINDOW_EMOJI,
   WINDOW_LABELS,
+  type Capacity,
   type Day,
+  type VibeTag,
   type Window,
 } from '../../domain/constants.js';
 import { formatWeekLabel, type IsoDate } from '../../domain/week.js';
@@ -184,8 +192,113 @@ export function windowPickerView(params: WindowPickerParams): InteractionUpdateO
 }
 
 // ---------------------------------------------------------------------------
+// Stage C - capacity and vibe, on ONE message
+//
+// Splitting these across two messages would cost a round trip for no benefit,
+// and the whole flow is budgeted at under two minutes.
+// ---------------------------------------------------------------------------
+
+export interface CapacityVibeParams {
+  draftId: number;
+  groupId: number;
+  groupName: string;
+  timezone: string;
+  weekStartDate: IsoDate;
+  capacity: Capacity | undefined;
+  vibes: VibeTag[];
+  slotCount: number;
+  dayCount: number;
+}
+
+export function capacityVibeView(params: CapacityVibeParams): InteractionUpdateOptions {
+  const capacityRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    ...CAPACITY_OPTIONS.map((option) =>
+      new ButtonBuilder()
+        .setCustomId(encodeCustomId('av', 'cap', toBase36(params.draftId), String(option)))
+        .setLabel(CAPACITY_LABELS[option])
+        .setStyle(params.capacity === option ? ButtonStyle.Success : ButtonStyle.Secondary),
+    ),
+  );
+
+  const chosenVibes = new Set(params.vibes);
+  const vibeSelect = new StringSelectMenuBuilder()
+    .setCustomId(encodeCustomId('av', 'vibe', toBase36(params.draftId)))
+    .setPlaceholder(`What are you in the mood for? (up to ${MAX_VIBE_SELECTIONS})`)
+    .setMinValues(0)
+    .setMaxValues(MAX_VIBE_SELECTIONS)
+    .addOptions(
+      VIBE_TAGS.map((tag) =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(VIBE_LABELS[tag])
+          .setDescription(VIBE_DESCRIPTIONS[tag])
+          .setValue(tag)
+          .setDefault(chosenVibes.has(tag)),
+      ),
+    );
+
+  const navRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(encodeCustomId('av', 'page', toBase36(params.draftId), '0'))
+      .setLabel('◀ Back')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(encodeCustomId('av', 'submit', toBase36(params.draftId)))
+      .setLabel('Submit ✓')
+      .setStyle(ButtonStyle.Success)
+      // Capacity is the one genuinely required answer, so Submit stays inert
+      // until it is given rather than failing after the tap.
+      .setDisabled(params.capacity === undefined),
+    new ButtonBuilder()
+      .setCustomId(encodeCustomId('av', 'optout', toBase36(params.groupId)))
+      .setLabel("Can't this week")
+      .setStyle(ButtonStyle.Secondary),
+  );
+
+  return {
+    content: [
+      header(params.groupName, params.timezone, params.weekStartDate),
+      '',
+      `Step 3 of 3 — ${params.slotCount} windows across ${params.dayCount} ` +
+        `${params.dayCount === 1 ? 'day' : 'days'}.`,
+      'How many sessions can you actually make this week?',
+    ].join('\n'),
+    components: [
+      capacityRow,
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(vibeSelect),
+      navRow,
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Terminal screens
 // ---------------------------------------------------------------------------
+
+export function submittedView(params: {
+  groupName: string;
+  weekStartDate: IsoDate;
+  capacity: Capacity;
+  slotCount: number;
+  dayCount: number;
+  vibes: VibeTag[];
+}): InteractionUpdateOptions {
+  const vibeLine =
+    params.vibes.length > 0 ? ` · ${params.vibes.map((tag) => VIBE_LABELS[tag]).join(', ')}` : '';
+
+  return {
+    content: [
+      `**You're in for the week of ${formatWeekLabel(params.weekStartDate)}.** 🧌`,
+      '',
+      `Up to ${CAPACITY_LABELS[params.capacity]} ${params.capacity === 1 ? 'session' : 'sessions'} · ` +
+        `${params.slotCount} windows across ${params.dayCount} ` +
+        `${params.dayCount === 1 ? 'day' : 'days'}${vibeLine}`,
+      '',
+      `${params.groupName} sees only the combined result — never your individual picks.`,
+      'Change anything by running `/availability` again.',
+    ].join('\n'),
+    components: [],
+  };
+}
 
 export function noWindowsChosenView(params: {
   draftId: number;

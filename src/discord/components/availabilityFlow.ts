@@ -9,19 +9,28 @@
  */
 
 import { DomainError } from '../../domain/errors.js';
-import { isDay, isWindow, type Day, type Window } from '../../domain/constants.js';
+import {
+  isCapacity,
+  isDay,
+  isWindow,
+  type Day,
+  type VibeTag,
+  type Window,
+} from '../../domain/constants.js';
 import { fromBase36, type ParsedCustomId } from '../customId.js';
 import type { ComponentInteraction } from './index.js';
 import { registerComponentHandler } from './index.js';
 import type { AppContext } from '../../services/context.js';
 import { resolveMemberByDiscordId } from '../../services/membershipService.js';
-import { currentWeek, optOut, startOrResumeFlow } from '../../services/responseService.js';
+import { currentWeek, optOut, startOrResumeFlow, submit } from '../../services/responseService.js';
 import * as draftService from '../../services/draftService.js';
 import type { DraftRecord, GroupRecord } from '../../services/types.js';
 import {
+  capacityVibeView,
   dayPickerView,
   noWindowsChosenView,
   optedOutView,
+  submittedView,
   windowPickerView,
 } from '../views/availability.view.js';
 
@@ -221,16 +230,98 @@ async function handleDone(
     return;
   }
 
-  // Step 4 replaces this with the capacity + vibe screen and the atomic submit.
-  await interaction.editReply({
-    content: [
-      `**Got it — ${draftService.totalSlotCount(draft.state)} windows across ` +
-        `${draftService.daysWithWindows(draft.state).length} days.**`,
-      '',
-      'Capacity and vibe land in the next build step.',
-    ].join('\n'),
-    components: [],
+  await interaction.editReply(renderCapacityVibe(draft, group));
+}
+
+// ---------------------------------------------------------------------------
+// Stage C - capacity, vibe, submit
+// ---------------------------------------------------------------------------
+
+function renderCapacityVibe(
+  draft: DraftRecord,
+  group: GroupRecord,
+): ReturnType<typeof capacityVibeView> {
+  return capacityVibeView({
+    draftId: draft.id,
+    groupId: group.id,
+    groupName: group.name,
+    timezone: group.timezone,
+    weekStartDate: draft.weekStartDate,
+    capacity: draftService.chosenCapacity(draft.state),
+    vibes: draftService.chosenVibes(draft.state),
+    slotCount: draftService.totalSlotCount(draft.state),
+    dayCount: draftService.daysWithWindows(draft.state).length,
   });
+}
+
+async function handleCapacity(
+  interaction: ComponentInteraction,
+  ctx: AppContext,
+  parsed: ParsedCustomId,
+): Promise<void> {
+  const capacity = Number(parsed.args[1]);
+  if (!isCapacity(capacity)) throw new DomainError('INVALID_INPUT');
+
+  await interaction.deferUpdate();
+  const { draft, group } = await loadContext(ctx, interaction, parsed.args[0]);
+  const updated = await draftService.setCapacity(ctx, draft, capacity);
+
+  await interaction.editReply(renderCapacityVibe(updated, group));
+}
+
+async function handleVibe(
+  interaction: ComponentInteraction,
+  ctx: AppContext,
+  parsed: ParsedCustomId,
+): Promise<void> {
+  if (!interaction.isStringSelectMenu()) throw new DomainError('INVALID_INPUT');
+
+  await interaction.deferUpdate();
+  const { draft, group } = await loadContext(ctx, interaction, parsed.args[0]);
+  const updated = await draftService.setVibes(ctx, draft, interaction.values as VibeTag[]);
+
+  await interaction.editReply(renderCapacityVibe(updated, group));
+}
+
+async function handleSubmit(
+  interaction: ComponentInteraction,
+  ctx: AppContext,
+  parsed: ParsedCustomId,
+): Promise<void> {
+  await interaction.deferUpdate();
+  const { draft, group } = await loadContext(ctx, interaction, parsed.args[0]);
+
+  const capacity = draftService.chosenCapacity(draft.state);
+  if (capacity === undefined) {
+    // Should be unreachable - Submit renders disabled without a capacity - but
+    // the service is the authority, not the button state.
+    await interaction.editReply(renderCapacityVibe(draft, group));
+    return;
+  }
+
+  const slots = draftService.toSlotRows(draft.state);
+  const vibes = draftService.chosenVibes(draft.state);
+
+  await submit(ctx, {
+    userId: draft.userId,
+    groupId: draft.groupId,
+    weekStartDate: draft.weekStartDate,
+    sessionsCommitted: capacity,
+    slots,
+    vibes,
+    draftId: draft.id,
+  });
+
+  await interaction.editReply(
+    submittedView({
+      groupName: group.name,
+      weekStartDate: draft.weekStartDate,
+      capacity,
+      slotCount: slots.length,
+      dayCount: draftService.daysWithWindows(draft.state).length,
+      vibes,
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -259,6 +350,12 @@ async function handle(
       return handleCopyToAll(interaction, ctx, parsed);
     case 'done':
       return handleDone(interaction, ctx, parsed);
+    case 'cap':
+      return handleCapacity(interaction, ctx, parsed);
+    case 'vibe':
+      return handleVibe(interaction, ctx, parsed);
+    case 'submit':
+      return handleSubmit(interaction, ctx, parsed);
     default:
       ctx.logger.warn('unknown availability action', { action: parsed.action });
   }
