@@ -155,3 +155,15 @@ there. The development toolchain needs **Node 20+**, because vitest does.
 | `npm test`         | Unit + integration suites                           |
 | `npm run lint`     | ESLint, including the layer and notifier boundaries |
 | `npm run db:up`    | Start a local Postgres cluster without Docker       |
+
+## Slash commands
+
+| Command         | Who        | What                                                    |
+| --------------- | ---------- | ------------------------------------------------------- |
+| `/availability` | anyone     | Start or resume the weekly questionnaire                |
+| `/status`       | anyone     | Who has answered, with a Buzz button per non-responder  |
+| `/overlap`      | anyone     | The ranked best windows (organizers also get "Lock in") |
+| `/games`        | anyone     | Shared games matched to this week's vibe (Steam)        |
+| `/propose`      | anyone     | Nominate a game for a session (autocompleted)           |
+| `/link-steam`   | anyone     | Connect a Steam library                                 |
+| `/setup`        | organizers | Timezone, announce channel, nudge cutoff                |

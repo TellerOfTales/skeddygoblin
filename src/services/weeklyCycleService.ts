@@ -104,6 +104,22 @@ export async function claimCutoffPost(
   });
 }
 
+/**
+ * Claims the weekly library re-sync. Once per group per week is plenty:
+ * libraries change slowly, and GetOwnedGames is one call per linked member.
+ */
+export async function claimSteamSync(
+  ctx: AppContext,
+  group: GroupRecord,
+  week: IsoDate,
+): Promise<boolean> {
+  return jobRuns.claimJob(ctx.db, {
+    groupId: group.id,
+    jobKind: 'steam_sync',
+    weekStartDate: week,
+  });
+}
+
 export function currentWeekFor(ctx: AppContext, group: GroupRecord): IsoDate {
   return weekStartDate(ctx.clock.now(), group.timezone);
 }

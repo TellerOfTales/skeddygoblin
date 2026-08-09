@@ -381,3 +381,31 @@ describe('library sync bookkeeping', () => {
     });
   });
 });
+
+describe('weekly library re-sync', () => {
+  it('is claimed once per group per week, like every other scheduled job', async () => {
+    await withRollback(async (ctx) => {
+      const { group, week } = await seedLibraries(ctx, 1);
+      const { claimSteamSync } = await import('../../src/services/weeklyCycleService.js');
+
+      expect(await claimSteamSync(ctx, group, week)).toBe(true);
+      expect(await claimSteamSync(ctx, group, week)).toBe(false);
+
+      // ...and comes round again next week, because people buy games.
+      ctx.clock.advanceDays(7);
+      const nextWeek = currentWeek(ctx, group.timezone);
+      expect(await claimSteamSync(ctx, group, nextWeek)).toBe(true);
+    });
+  });
+
+  it('only re-syncs members who actually linked Steam', async () => {
+    await withRollback(async (ctx) => {
+      const { group, members } = await seedLibraries(ctx, 2);
+      await steam.setSteamId(ctx.db, members[0]!.id, '76561198000000001', true);
+
+      const linked = await steam.listLinkedUserIds(ctx.db, group.id);
+
+      expect(linked).toEqual([members[0]!.id]);
+    });
+  });
+});

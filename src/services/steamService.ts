@@ -139,6 +139,52 @@ export async function refreshAppMetadata(
   return fetched;
 }
 
+export interface GroupSyncOutcome {
+  synced: number;
+  private: number;
+  failed: number;
+}
+
+/**
+ * Re-syncs every linked member's library in a group.
+ *
+ * Libraries go stale - people buy games. Without this, the shared-library view
+ * would only ever reflect what someone owned on the day they linked.
+ *
+ * A member whose profile has since gone private is recorded as such rather than
+ * silently dropped, so `/link-steam` can tell them why they vanished from the
+ * group's shared list.
+ */
+export async function syncGroupLibraries(
+  ctx: AppContext,
+  groupId: number,
+): Promise<GroupSyncOutcome> {
+  const outcome: GroupSyncOutcome = { synced: 0, private: 0, failed: 0 };
+  if (!steamEnabled()) return outcome;
+
+  const linked = await steam.listLinkedUserIds(ctx.db, groupId);
+
+  for (const userId of linked) {
+    try {
+      await syncLibrary(ctx, userId);
+      await steam.setSteamPublic(ctx.db, userId, true);
+      outcome.synced++;
+    } catch (error) {
+      if (error instanceof SteamProfilePrivateError) {
+        await steam.setSteamPublic(ctx.db, userId, false);
+        outcome.private++;
+      } else {
+        // One member's failure must not abandon the rest of the group.
+        ctx.logger.warn('library sync failed for member', { userId, error });
+        outcome.failed++;
+      }
+    }
+  }
+
+  if (linked.length > 0) ctx.logger.info('group libraries synced', { groupId, ...outcome });
+  return outcome;
+}
+
 /** A member's own library. Self-scoped. */
 export async function getOwnLibrary(ctx: AppContext, userId: UserId) {
   return steam.listLibraryForSelf(ctx.db, userId);

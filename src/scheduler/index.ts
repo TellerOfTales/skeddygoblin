@@ -18,10 +18,11 @@ import * as groups from '../db/repositories/groups.js';
 import * as drafts from '../db/repositories/drafts.js';
 import { DRAFT_TTL_DAYS } from '../domain/constants.js';
 import { expireStalePendingBuzzes } from '../services/buzzService.js';
-import { refreshAppMetadata, steamEnabled } from '../services/steamService.js';
+import { refreshAppMetadata, steamEnabled, syncGroupLibraries } from '../services/steamService.js';
 import type { AppContext } from '../services/context.js';
 import {
   claimCutoffPost,
+  claimSteamSync,
   currentWeekFor,
   isCutoffDue,
   isPromptDue,
@@ -52,6 +53,12 @@ export async function runTick(ctx: AppContext, hooks: SchedulerHooks): Promise<v
         if (await claimCutoffPost(ctx, group, week)) {
           await hooks.postCutoff(group, week);
         }
+      }
+
+      // Libraries go stale as people buy games, so re-sync once a week rather
+      // than trusting whatever they owned on the day they linked.
+      if (steamEnabled() && (await claimSteamSync(ctx, group, week))) {
+        await syncGroupLibraries(ctx, group.id);
       }
     } catch (error) {
       // One bad group must not stop the others.

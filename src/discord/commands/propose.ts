@@ -8,7 +8,7 @@ import type { AppContext } from '../../services/context.js';
 import { resolveActor } from '../../services/membershipService.js';
 import { currentWeek } from '../../services/responseService.js';
 import { listGameOptions, nominateGame, searchSharedGames } from '../../services/gameService.js';
-import { requireProposal } from '../../services/sessionService.js';
+import { listOpenProposals, requireProposal } from '../../services/sessionService.js';
 import { gameVoteView } from '../views/games.view.js';
 
 /**
@@ -94,7 +94,7 @@ export async function execute(
   const sessionId = interaction.options.getInteger('session');
   const proposal = sessionId
     ? await requireProposal(ctx, sessionId)
-    : await findOnlyOpenProposal(ctx, actor.group.id, week);
+    : await findDefaultProposal(ctx, actor.group.id, week);
 
   if (!proposal) {
     await interaction.editReply(
@@ -135,8 +135,14 @@ export async function execute(
   );
 }
 
-async function findOnlyOpenProposal(ctx: AppContext, groupId: number, week: string) {
-  const { listOpenProposals } = await import('../../services/sessionService.js');
+/**
+ * The session to nominate for when none was named.
+ *
+ * Takes the earliest open one. If a group has several going at once they can
+ * disambiguate with the `session` option; guessing harder than this would be
+ * guessing wrong more confidently.
+ */
+async function findDefaultProposal(ctx: AppContext, groupId: number, week: string) {
   const open = await listOpenProposals(ctx, { groupId, weekStartDate: week });
-  return open.length === 1 ? open[0] : (open[0] ?? null);
+  return open[0] ?? null;
 }

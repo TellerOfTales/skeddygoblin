@@ -2,7 +2,7 @@ import type { Queryable } from '../pool.js';
 import type { IsoDate } from '../../domain/week.js';
 import type { GroupId } from './types.js';
 
-export type JobKind = 'weekly_prompt' | 'nudge_cutoff' | 'overlap_post';
+export type JobKind = 'weekly_prompt' | 'nudge_cutoff' | 'overlap_post' | 'steam_sync';
 
 /**
  * Claims a job for a group and week.
