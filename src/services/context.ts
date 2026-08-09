@@ -10,6 +10,7 @@
 
 import type { Db } from '../db/pool.js';
 import type { Logger } from '../logger.js';
+import type { Notifier } from '../notify/Notifier.js';
 
 /** Injectable clock so week/cutoff logic is testable without faking timers. */
 export interface Clock {
@@ -22,6 +23,12 @@ export interface AppContext {
   db: Db;
   logger: Logger;
   clock: Clock;
+  /**
+   * The ONLY route to a person. Services call this; they never touch a
+   * transport. In tests it is a RecordingNotifier, which is why no service
+   * needs module mocking.
+   */
+  notifier: Notifier;
 }
 
 export function buildContext(parts: AppContext): AppContext {

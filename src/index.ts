@@ -1,5 +1,6 @@
 /**
- * Boot sequence: config -> pool -> migrate -> context -> client -> login.
+ * Boot sequence: config -> pool -> migrate -> client -> notifier -> context ->
+ * login.
  *
  * Migrations run at boot on purpose. This is a single-instance bot with a
  * roll-forward-only migration set, and the advisory lock inside the runner
@@ -14,7 +15,10 @@ import { createDb, createPool } from './db/pool.js';
 import { migrate } from './db/migrate.js';
 import { createClient, loginAndWaitReady } from './discord/client.js';
 import { createRouter } from './discord/router.js';
+import { registerAllComponentHandlers } from './discord/components/registerAll.js';
 import { registerGuildCommands } from './discord/registerCommands.js';
+import { DiscordDMNotifier } from './notify/DiscordDMNotifier.js';
+import { NotifierRegistry } from './notify/registry.js';
 import { systemClock, type AppContext } from './services/context.js';
 
 async function main(): Promise<void> {
@@ -27,17 +31,25 @@ async function main(): Promise<void> {
     total: migration.applied.length + migration.alreadyApplied.length,
   });
 
-  const ctx: AppContext = {
-    db: createDb(pool),
-    logger,
-    clock: systemClock,
-  };
-
   if (discord.autoRegisterCommands) {
     await registerGuildCommands();
   }
 
   const client = createClient();
+  registerAllComponentHandlers();
+
+  // The registry is what makes preferred_channel meaningful. Stage 1 registers
+  // exactly one implementation; adding an SMS notifier later is one more
+  // .register() call rather than a change at any call site.
+  const notifier = new NotifierRegistry(logger).register(new DiscordDMNotifier(client, logger));
+
+  const ctx: AppContext = {
+    db: createDb(pool),
+    logger,
+    clock: systemClock,
+    notifier,
+  };
+
   const route = createRouter(ctx);
   client.on(Events.InteractionCreate, (interaction) => {
     void route(interaction);
