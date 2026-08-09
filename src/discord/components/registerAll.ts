@@ -8,6 +8,7 @@
  */
 
 import './availabilityFlow.js';
+import './buzz.js';
 import './session.js';
 
 /** Called at boot purely to guarantee this module is evaluated. */
