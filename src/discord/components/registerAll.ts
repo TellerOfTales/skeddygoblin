@@ -7,7 +7,7 @@
  * one obvious place as build-order steps land.
  */
 
-import './quickOut.js';
+import './availabilityFlow.js';
 
 /** Called at boot purely to guarantee this module is evaluated. */
 export function registerAllComponentHandlers(): void {

@@ -79,7 +79,7 @@ export function renderPayload(payload: NotifyPayload): MessageCreateOptions {
 
   // Catch a too-long custom_id or an over-full row here rather than as an
   // opaque 400 from the API, in someone's DM.
-  assertLegalMessage(message as { components?: unknown[] }, 'DM');
+  assertLegalMessage(message, 'DM');
 
   return message;
 }

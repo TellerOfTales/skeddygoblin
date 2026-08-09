@@ -40,8 +40,12 @@ interface RawComponent {
   components?: RawComponent[];
 }
 
+/**
+ * Structurally compatible with discord.js message options, whose `components`
+ * is readonly - so views can be passed straight in without a cast.
+ */
 export interface MessageLike {
-  components?: unknown[];
+  components?: readonly unknown[] | undefined;
 }
 
 export class ComponentLimitError extends Error {

@@ -170,6 +170,23 @@ export function isVibeTag(value: unknown): value is VibeTag {
 export const MAX_VIBE_SELECTIONS = 3;
 
 // ---------------------------------------------------------------------------
+// Component layout
+// ---------------------------------------------------------------------------
+
+/**
+ * Days shown per page of the window picker.
+ *
+ * FOUR, not five. Discord allows 5 action rows per message and a row holding a
+ * select menu may hold nothing else - so five day-selects would consume every
+ * row and leave nowhere for Back / Copy / Next. Seven selected days therefore
+ * paginate as 4 + 3.
+ *
+ * The component-legality test enforces this with a maximal fixture, so raising
+ * it fails the build rather than someone's DM.
+ */
+export const DAYS_PER_PAGE = 4;
+
+// ---------------------------------------------------------------------------
 // Aggregation / privacy
 // ---------------------------------------------------------------------------
 
