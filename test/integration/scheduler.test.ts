@@ -1,0 +1,294 @@
+import { afterAll, describe, expect, it } from 'vitest';
+import { closeTestPool, withRollback } from '../helpers/db.js';
+import { makeGroup, makeGroupWithMembers, makeMember } from '../helpers/fixtures.js';
+import * as jobRuns from '../../src/db/repositories/jobRuns.js';
+import * as groups from '../../src/db/repositories/groups.js';
+import {
+  claimCutoffPost,
+  isCutoffDue,
+  isPromptDue,
+  runWeeklyPrompt,
+} from '../../src/services/weeklyCycleService.js';
+import { currentWeek, optOut, submit } from '../../src/services/responseService.js';
+import {
+  attendanceCounts,
+  confirmSession,
+  proposeSession,
+  rsvp,
+} from '../../src/services/sessionService.js';
+import * as overlapRepo from '../../src/db/repositories/overlap.js';
+
+afterAll(closeTestPool);
+
+describe('scheduling predicates', () => {
+  it('opens the week from Monday morning, group-local', async () => {
+    await withRollback(async (ctx) => {
+      const group = await makeGroup(ctx, { timezone: 'Europe/London' });
+
+      // Sunday night: not yet.
+      expect(isPromptDue(group, new Date('2026-08-09T23:00:00Z'))).toBe(false);
+      // Monday 09:00 London: still before the 10:00 prompt.
+      expect(isPromptDue(group, new Date('2026-08-10T08:00:00Z'))).toBe(false);
+      // Monday 10:00 London (09:00Z in BST).
+      expect(isPromptDue(group, new Date('2026-08-10T09:00:00Z'))).toBe(true);
+    });
+  });
+
+  it('reads the cutoff in the group timezone, not UTC', async () => {
+    await withRollback(async (ctx) => {
+      const group = await groups.updateGroupSettings(ctx.db, (await makeGroup(ctx)).id, {
+        timezone: 'America/Los_Angeles',
+        nudgeCutoffDay: 3, // Thursday
+        nudgeCutoffTime: '20:00',
+      });
+
+      // Thursday 20:00 UTC is Thursday 13:00 in Los Angeles - not yet.
+      expect(isCutoffDue(group, new Date('2026-08-13T20:00:00Z'))).toBe(false);
+      // Friday 03:00 UTC is Thursday 20:00 in Los Angeles.
+      expect(isCutoffDue(group, new Date('2026-08-14T03:00:00Z'))).toBe(true);
+    });
+  });
+});
+
+/**
+ * The reason the scheduler is a tick over job_run rather than cron: a job must
+ * run exactly once per group per week, even across restarts and overlapping
+ * instances.
+ */
+describe('job claiming', () => {
+  it('lets exactly one caller claim a job for a group and week', async () => {
+    await withRollback(async (ctx) => {
+      const group = await makeGroup(ctx);
+      const week = currentWeek(ctx, group.timezone);
+      const params = { groupId: group.id, jobKind: 'weekly_prompt' as const, weekStartDate: week };
+
+      expect(await jobRuns.claimJob(ctx.db, params)).toBe(true);
+      expect(await jobRuns.claimJob(ctx.db, params)).toBe(false);
+      expect(await jobRuns.claimJob(ctx.db, params)).toBe(false);
+    });
+  });
+
+  it('claims again for the following week', async () => {
+    await withRollback(async (ctx) => {
+      const group = await makeGroup(ctx);
+      const thisWeek = currentWeek(ctx, group.timezone);
+      ctx.clock.advanceDays(7);
+      const nextWeek = currentWeek(ctx, group.timezone);
+
+      expect(
+        await jobRuns.claimJob(ctx.db, {
+          groupId: group.id,
+          jobKind: 'weekly_prompt',
+          weekStartDate: thisWeek,
+        }),
+      ).toBe(true);
+      expect(
+        await jobRuns.claimJob(ctx.db, {
+          groupId: group.id,
+          jobKind: 'weekly_prompt',
+          weekStartDate: nextWeek,
+        }),
+      ).toBe(true);
+    });
+  });
+});
+
+describe('weekly prompt job', () => {
+  it('DMs only members who have not answered yet', async () => {
+    await withRollback(async (ctx) => {
+      const { group, members } = await makeGroupWithMembers(ctx, 4);
+      const week = currentWeek(ctx, group.timezone);
+      const scope = { groupId: group.id, weekStartDate: week };
+
+      await submit(ctx, {
+        userId: members[0]!.id,
+        ...scope,
+        sessionsCommitted: 2,
+        slots: [{ dayOfWeek: 0, window: 'evening' }],
+        vibes: [],
+      });
+      // Opting out counts as answering - no further nudges this week.
+      await optOut(ctx, { userId: members[1]!.id, ...scope });
+
+      const outcome = await runWeeklyPrompt(ctx, group, week);
+
+      expect(outcome.ran).toBe(true);
+      expect(outcome.prompted).toBe(2);
+
+      const promptedIds = ctx.notifier.sent.map((notification) => notification.user.id);
+      expect(promptedIds).toEqual([members[2]!.id, members[3]!.id]);
+    });
+  });
+
+  it('does not run twice for the same week', async () => {
+    await withRollback(async (ctx) => {
+      const { group } = await makeGroupWithMembers(ctx, 3);
+      const week = currentWeek(ctx, group.timezone);
+
+      const first = await runWeeklyPrompt(ctx, group, week);
+      const second = await runWeeklyPrompt(ctx, group, week);
+
+      expect(first.ran).toBe(true);
+      expect(first.prompted).toBe(3);
+      expect(second).toEqual({ ran: false, prompted: 0, undeliverable: 0 });
+      expect(ctx.notifier.sent).toHaveLength(3);
+    });
+  });
+
+  it('counts undeliverable DMs separately from successes', async () => {
+    await withRollback(async (ctx) => {
+      const { group } = await makeGroupWithMembers(ctx, 2);
+      ctx.notifier.failWith = 'dm_closed';
+
+      const outcome = await runWeeklyPrompt(ctx, group, currentWeek(ctx, group.timezone));
+
+      expect(outcome.prompted).toBe(0);
+      expect(outcome.undeliverable).toBe(2);
+    });
+  });
+
+  it('claims the cutoff post exactly once', async () => {
+    await withRollback(async (ctx) => {
+      const group = await makeGroup(ctx);
+      const week = currentWeek(ctx, group.timezone);
+
+      expect(await claimCutoffPost(ctx, group, week)).toBe(true);
+      expect(await claimCutoffPost(ctx, group, week)).toBe(false);
+    });
+  });
+});
+
+/**
+ * The proposal loop exists in Stage 1 specifically so the overlap score's
+ * remaining-capacity term is exercised rather than permanently zero.
+ */
+describe('session proposal loop', () => {
+  it('runs propose -> rsvp -> confirm and notifies everyone who said yes', async () => {
+    await withRollback(async (ctx) => {
+      const { group, members } = await makeGroupWithMembers(ctx, 3);
+      const week = currentWeek(ctx, group.timezone);
+
+      const proposal = await proposeSession(ctx, {
+        groupId: group.id,
+        weekStartDate: week,
+        day: 2,
+        window: 'evening',
+        createdBy: members[0]!.id,
+      });
+
+      await rsvp(ctx, { proposalId: proposal.id, userId: members[0]!.id, response: 'yes' });
+      await rsvp(ctx, { proposalId: proposal.id, userId: members[1]!.id, response: 'yes' });
+      await rsvp(ctx, { proposalId: proposal.id, userId: members[2]!.id, response: 'no' });
+
+      expect(await attendanceCounts(ctx, proposal.id)).toEqual({ yes: 2, maybe: 0, no: 1 });
+
+      ctx.notifier.reset();
+      const { notified } = await confirmSession(ctx, { proposalId: proposal.id, group });
+
+      expect(notified).toBe(2);
+      expect(ctx.notifier.countOfType('session_confirmed')).toBe(2);
+      // The member who said no is not told about a session they declined.
+      expect(ctx.notifier.lastTo(members[2]!.id)).toBeUndefined();
+    });
+  });
+
+  it('lets a member change their RSVP without duplicating it', async () => {
+    await withRollback(async (ctx) => {
+      const { group, members } = await makeGroupWithMembers(ctx, 2);
+      const proposal = await proposeSession(ctx, {
+        groupId: group.id,
+        weekStartDate: currentWeek(ctx, group.timezone),
+        day: 1,
+        window: 'night',
+        createdBy: members[0]!.id,
+      });
+
+      await rsvp(ctx, { proposalId: proposal.id, userId: members[0]!.id, response: 'yes' });
+      await rsvp(ctx, { proposalId: proposal.id, userId: members[0]!.id, response: 'maybe' });
+
+      expect(await attendanceCounts(ctx, proposal.id)).toEqual({ yes: 0, maybe: 1, no: 0 });
+    });
+  });
+
+  it('refuses an RSVP once the session is settled', async () => {
+    await withRollback(async (ctx) => {
+      const { group, members } = await makeGroupWithMembers(ctx, 2);
+      const proposal = await proposeSession(ctx, {
+        groupId: group.id,
+        weekStartDate: currentWeek(ctx, group.timezone),
+        day: 1,
+        window: 'night',
+        createdBy: members[0]!.id,
+      });
+      await confirmSession(ctx, { proposalId: proposal.id, group });
+
+      await expect(
+        rsvp(ctx, { proposalId: proposal.id, userId: members[1]!.id, response: 'yes' }),
+      ).rejects.toMatchObject({ code: 'PROPOSAL_CLOSED' });
+    });
+  });
+
+  it('produces one session when the same window is locked in twice', async () => {
+    await withRollback(async (ctx) => {
+      const group = await makeGroup(ctx);
+      const organizer = await makeMember(ctx, group, { role: 'organizer' });
+      const week = currentWeek(ctx, group.timezone);
+
+      const first = await proposeSession(ctx, {
+        groupId: group.id,
+        weekStartDate: week,
+        day: 4,
+        window: 'evening',
+        createdBy: organizer.id,
+      });
+      const second = await proposeSession(ctx, {
+        groupId: group.id,
+        weekStartDate: week,
+        day: 4,
+        window: 'evening',
+        createdBy: organizer.id,
+      });
+
+      expect(second.id).toBe(first.id);
+    });
+  });
+
+  /**
+   * The loop closing back onto the scorer: confirming a session spends capacity,
+   * which drops that member out of future overlap rankings.
+   */
+  it('spends remaining capacity, changing what the overlap query returns', async () => {
+    await withRollback(async (ctx) => {
+      const { group, members } = await makeGroupWithMembers(ctx, 2);
+      const week = currentWeek(ctx, group.timezone);
+      const scope = { groupId: group.id, weekStartDate: week };
+      const slots = [
+        { dayOfWeek: 2 as const, window: 'evening' as const },
+        { dayOfWeek: 5 as const, window: 'night' as const },
+      ];
+
+      for (const member of members) {
+        await submit(ctx, { userId: member.id, ...scope, sessionsCommitted: 1, slots, vibes: [] });
+      }
+
+      const before = await overlapRepo.rankWindowAggregate(ctx.db, { ...scope, minHeadcount: 1 });
+      expect(before.every((row) => row.headcount === 2)).toBe(true);
+
+      // Both members commit their single session to Wednesday evening.
+      const proposal = await proposeSession(ctx, {
+        ...scope,
+        day: 2,
+        window: 'evening',
+        createdBy: members[0]!.id,
+      });
+      for (const member of members) {
+        await rsvp(ctx, { proposalId: proposal.id, userId: member.id, response: 'yes' });
+      }
+      await confirmSession(ctx, { proposalId: proposal.id, group });
+
+      // With no capacity left, neither member pulls the group anywhere.
+      const after = await overlapRepo.rankWindowAggregate(ctx.db, { ...scope, minHeadcount: 1 });
+      expect(after).toEqual([]);
+    });
+  });
+});

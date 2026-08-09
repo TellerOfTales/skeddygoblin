@@ -19,6 +19,9 @@ import { registerAllComponentHandlers } from './discord/components/registerAll.j
 import { registerGuildCommands } from './discord/registerCommands.js';
 import { DiscordDMNotifier } from './notify/DiscordDMNotifier.js';
 import { NotifierRegistry } from './notify/registry.js';
+import { leaderboardView } from './discord/views/leaderboard.view.js';
+import { buildOverlapReport } from './services/overlapService.js';
+import { startScheduler } from './scheduler/index.js';
 import { systemClock, type AppContext } from './services/context.js';
 
 async function main(): Promise<void> {
@@ -55,10 +58,42 @@ async function main(): Promise<void> {
     void route(interaction);
   });
 
-  await loginAndWaitReady(client);
+  const ready = await loginAndWaitReady(client);
+
+  // Posting is the one scheduler job that genuinely needs a Discord channel, so
+  // it is injected rather than reached for from inside the service layer.
+  const scheduler = await startScheduler(ctx, {
+    async postCutoff(group, week) {
+      if (!group.announceChannelId) {
+        logger.warn('cutoff due but no announce channel configured', { groupId: group.id });
+        return;
+      }
+      const channel = await ready.channels.fetch(group.announceChannelId);
+      if (!channel?.isTextBased() || !('send' in channel)) {
+        logger.warn('announce channel is not postable', { groupId: group.id });
+        return;
+      }
+
+      const report = await buildOverlapReport(ctx, { groupId: group.id, weekStartDate: week });
+      await channel.send(
+        leaderboardView({
+          groupId: group.id,
+          groupName: group.name,
+          weekStartDate: report.weekStartDate,
+          windows: report.windows,
+          responded: report.responded,
+          total: report.total,
+          topVibes: report.topVibes,
+          suppressedForPrivacy: report.suppressedForPrivacy,
+          showLockIn: true,
+        }),
+      );
+    },
+  });
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info('shutting down', { signal });
+    scheduler?.stop();
     await client.destroy();
     await pool.end();
     process.exit(0);

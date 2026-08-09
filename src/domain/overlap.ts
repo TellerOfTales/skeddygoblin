@@ -46,13 +46,24 @@ export interface SlotAggregate {
  */
 export function scoreSlot(remainingCapacities: readonly number[], totalResponders: number): number {
   const n = Math.max(totalResponders, 1);
-  const alpha = 0.5 / n;
-  let score = 0;
+
+  // Sum the clamped capacities as INTEGERS first, then apply the weighting
+  // once. This is not a micro-optimisation - it is what makes ties actually
+  // tie.
+  //
+  // Accumulating `1 + alpha * rHat` per member instead makes the result depend
+  // on the order members are summed in, so two slots with identical headcount
+  // and identical capacity totals could differ in the last floating-point bit.
+  // The comparator would then order them by that noise rather than falling
+  // through to the deterministic window/day tiebreak, and the ranking would
+  // disagree with the SQL that computes the same formula. Integer addition is
+  // exact and order-independent, so both sides land on the same float.
+  let clampedTotal = 0;
   for (const remaining of remainingCapacities) {
-    const rHat = Math.min(remaining, MAX_CAPACITY) / MAX_CAPACITY;
-    score += 1 + alpha * rHat;
+    clampedTotal += Math.min(remaining, MAX_CAPACITY);
   }
-  return score;
+
+  return remainingCapacities.length + (0.5 / n) * (clampedTotal / MAX_CAPACITY);
 }
 
 /**
