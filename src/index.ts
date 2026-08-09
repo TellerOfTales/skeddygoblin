@@ -22,6 +22,8 @@ import { NotifierRegistry } from './notify/registry.js';
 import { leaderboardView } from './discord/views/leaderboard.view.js';
 import { buildOverlapReport } from './services/overlapService.js';
 import { startScheduler } from './scheduler/index.js';
+import { startHttpServer } from './http/server.js';
+import { config as appConfig } from './config.js';
 import { systemClock, type AppContext } from './services/context.js';
 
 async function main(): Promise<void> {
@@ -91,9 +93,13 @@ async function main(): Promise<void> {
     },
   });
 
+  // Stage 2 only: starts nothing unless STEAM_API_KEY and PUBLIC_BASE_URL are set.
+  const httpServer = startHttpServer(ctx, appConfig.httpPort);
+
   const shutdown = async (signal: string): Promise<void> => {
     logger.info('shutting down', { signal });
     scheduler?.stop();
+    httpServer?.close();
     await client.destroy();
     await pool.end();
     process.exit(0);

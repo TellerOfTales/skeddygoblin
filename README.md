@@ -87,6 +87,45 @@ src/
   scheduler/   weekly prompt and nudge cutoff jobs
 ```
 
+## Steam (Stage 2)
+
+Steam features stay completely dormant unless both `STEAM_API_KEY` and
+`PUBLIC_BASE_URL` are set. Nothing about Stage 1 changes when they are absent — no HTTP
+server starts, no sync runs, and `/link-steam` says so plainly.
+
+**Steam auth is OpenID 2.0, not OAuth.** There is no client secret and no token exchange.
+The user is redirected to Steam, Steam redirects back with a bundle of `openid.*`
+parameters, and those parameters are POSTed straight back to Steam for authentication.
+That last step is not optional: everything in the callback arrives via the user's browser
+and is trivially forgeable, so the round trip is the only thing that makes the claimed
+SteamID trustworthy. `src/http/server.ts` exists solely to receive that callback.
+
+`GetOwnedGames` needs the member's profile to have **Game details** set to Public. That is
+probed at link time so the failure is reported with an actionable message, rather than
+surfacing later as a mysteriously empty shared-library list.
+
+Game _metadata_ lives in `steam_app_meta`, keyed by app id and shared across everyone —
+so eight members owning the same game costs one Store API call, not eight. The Store
+endpoint allows roughly 200 requests per 5 minutes, which is what makes that cache the
+difference between sync working and getting the bot blocked.
+
+**The same privacy rule applies to libraries.** A game carries an owner _count_ and never
+an owner list: "6 of you own this" is an aggregate, "Bob owns this" is a disclosure about
+Bob. Only members who submitted this week are counted, because the question is what
+_this week's players_ can actually load up.
+
+## Adding a second notification channel
+
+`TwilioSMSNotifier` is a scaffold, not an integration — it throws `NotImplementedError`.
+It exists to prove the abstraction holds: it compiles against the same `Notifier`
+interface, consumes the same channel-agnostic payload, and turns the very same
+`ActionRef`s that Discord renders as buttons into a numbered reply menu. `renderSms` and
+`resolveSmsReply` are real and tested.
+
+Making it live is: fill in `send()`, register it in `src/index.ts`, and set a member's
+`preferred_channel` to `sms`. No call site changes. Until then, a member switched to
+`sms` gets a clean `channel_unavailable` rather than a silently swallowed message.
+
 ## Deployment
 
 **Run exactly one instance.** The scheduler is in-process.

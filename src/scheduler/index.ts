@@ -17,6 +17,8 @@ import { tryAdvisorySessionLock } from '../db/pool.js';
 import * as groups from '../db/repositories/groups.js';
 import * as drafts from '../db/repositories/drafts.js';
 import { DRAFT_TTL_DAYS } from '../domain/constants.js';
+import { expireStalePendingBuzzes } from '../services/buzzService.js';
+import { refreshAppMetadata, steamEnabled } from '../services/steamService.js';
 import type { AppContext } from '../services/context.js';
 import {
   claimCutoffPost,
@@ -62,6 +64,24 @@ export async function runTick(ctx: AppContext, hooks: SchedulerHooks): Promise<v
     if (pruned > 0) ctx.logger.debug('pruned stale drafts', { pruned });
   } catch (error) {
     ctx.logger.error('draft prune failed', { error });
+  }
+
+  try {
+    // Releases buzzes orphaned by a process that died between COMMIT and the DM.
+    const released = await expireStalePendingBuzzes(ctx);
+    if (released > 0) ctx.logger.info('released stale pending buzzes', { released });
+  } catch (error) {
+    ctx.logger.error('buzz sweep failed', { error });
+  }
+
+  if (steamEnabled()) {
+    try {
+      // Bounded per tick, and rate limited inside - the Steam Store endpoint
+      // allows roughly 200 requests per 5 minutes and nothing here is urgent.
+      await refreshAppMetadata(ctx);
+    } catch (error) {
+      ctx.logger.error('steam metadata refresh failed', { error });
+    }
   }
 }
 

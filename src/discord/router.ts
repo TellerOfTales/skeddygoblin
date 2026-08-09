@@ -84,6 +84,14 @@ export function createRouter(ctx: AppContext) {
         return;
       }
 
+      if (interaction.isAutocomplete()) {
+        const command = commands.get(interaction.commandName);
+        // Autocomplete has a hard 3s budget and no way to defer, so a failure
+        // here must degrade to an empty list rather than an error.
+        await command?.autocomplete?.(interaction, ctx);
+        return;
+      }
+
       if (interaction.isButton() || interaction.isAnySelectMenu()) {
         let parsed;
         try {

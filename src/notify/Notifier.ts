@@ -15,8 +15,15 @@
 
 import type { NotifyAction } from '../domain/actions.js';
 
-/** Mirrors the preferred_channel Postgres enum. Only one value in Stage 1. */
-export const PREFERRED_CHANNELS = ['discord_dm'] as const;
+/**
+ * Mirrors the preferred_channel Postgres enum (see migration 0002).
+ *
+ * 'sms' existing here does NOT make it reachable: NotifierRegistry only routes
+ * to implementations that were registered at boot, and TwilioSMSNotifier is a
+ * scaffold that throws. A user switched to 'sms' today gets a clean
+ * channel_unavailable, not a silently swallowed message.
+ */
+export const PREFERRED_CHANNELS = ['discord_dm', 'sms'] as const;
 export type PreferredChannel = (typeof PREFERRED_CHANNELS)[number];
 
 /** Every kind of message a person can receive. */

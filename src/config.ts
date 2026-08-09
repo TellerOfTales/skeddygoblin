@@ -154,6 +154,9 @@ export const config = Object.freeze({
   }),
 
   defaultGroupTimezone: core.timezone('DEFAULT_GROUP_TIMEZONE', 'UTC'),
+
+  /** Port for the Steam OpenID callback server. Unused until Steam is set up. */
+  httpPort: core.integer('HTTP_PORT', 8080, 1, 65_535),
 });
 
 core.failFast('Core');

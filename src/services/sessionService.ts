@@ -113,6 +113,15 @@ export async function attendanceCounts(
   return sessions.countAttendanceAggregate(ctx.db, proposalId);
 }
 
+/** Proposals still open for nominations and RSVPs this week. */
+export async function listOpenProposals(
+  ctx: AppContext,
+  params: { groupId: GroupId; weekStartDate: IsoDate },
+): Promise<ProposalRecord[]> {
+  const all = await sessions.listProposalsForWeek(ctx.db, params);
+  return all.filter((proposal) => proposal.status !== 'cancelled');
+}
+
 export async function requireProposal(
   ctx: AppContext,
   proposalId: number,

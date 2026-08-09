@@ -185,6 +185,31 @@ describe('P2: repository export naming discipline', () => {
     'claimJob',
     'hasRun',
     'releaseJob',
+
+    // --- Stage 2 -----------------------------------------------------------
+    // App metadata is about GAMES, not people. No user column exists on it.
+    'upsertAppMeta',
+    'listAppIdsNeedingMeta',
+    // Owner COUNTS only. The query never selects a user id - see the games
+    // integration test, which asserts no member identifier survives into it.
+    'listSharedGamesAggregate',
+    // Vote counts, plus a votedByMe flag that the SQL can only ever compute
+    // against the caller's own id.
+    'listOptionsAggregate',
+    // Nomination records: proposal, app id, game name. A game name is not a
+    // preference about a person - it is the group's shortlist.
+    'createGameVote',
+    'findGameVoteById',
+    // Writes that take the acting user explicitly.
+    'castVote',
+    'toggleVote',
+    'createLinkState',
+    'consumeLinkState',
+    'setSteamId',
+    'setSteamPublic',
+    // Identity without preference, exactly like listMemberIds: who has linked
+    // Steam, not what is in their library.
+    'listLinkedUserIds',
   ]);
 
   it('every repository export is self-scoped or explicitly allowlisted', async () => {
