@@ -1,0 +1,42 @@
+{
+  "name": "skeddygoblin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Discord bot that coordinates gaming sessions for busy adults",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "migrate": "tsx src/db/migrate.ts",
+    "register": "tsx src/discord/registerCommands.ts",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run test/unit",
+    "test:watch": "vitest",
+    "db:up": "bash scripts/dev-pg.sh up",
+    "db:down": "bash scripts/dev-pg.sh down"
+  },
+  "dependencies": {
+    "discord.js": "^14.27.0",
+    "dotenv": "^17.2.3",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.19.0",
+    "@types/pg": "^8.21.0",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.6.2",
+    "tsx": "^4.23.11",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.66.0",
+    "vitest": "^4.1.10"
+  }
+}

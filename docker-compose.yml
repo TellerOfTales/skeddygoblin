@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16
+    container_name: skeddygoblin-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: skeddy
+      POSTGRES_PASSWORD: skeddy
+      POSTGRES_DB: skeddygoblin
+    ports:
+      - '5432:5432'
+    volumes:
+      - skeddy-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U skeddy -d skeddygoblin']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  skeddy-pgdata:

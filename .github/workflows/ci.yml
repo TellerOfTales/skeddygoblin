@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+env:
+  # Core config is validated at import time, so even unit tests need a valid
+  # DATABASE_URL. Discord credentials are validated lazily and are not needed.
+  DATABASE_URL: postgres://skeddy:skeddy@localhost:5432/skeddygoblin
+  DATABASE_URL_TEST: postgres://skeddy:skeddy@localhost:5432/skeddygoblin_test
+
+jobs:
+  lint:
+    name: Lint and typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - name: Check formatting
+        run: npx prettier --check .
+
+  test:
+    name: Test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # vitest requires Node 20+. The application runtime floor is 18, which
+        # the runtime-floor job below proves separately.
+        node: [20, 22]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: skeddy
+          POSTGRES_PASSWORD: skeddy
+          POSTGRES_DB: skeddygoblin
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U skeddy"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: Create test database
+        run: PGPASSWORD=skeddy psql -h localhost -U skeddy -d skeddygoblin -c 'CREATE DATABASE skeddygoblin_test'
+      - run: npm run migrate
+      - run: npm test
+
+  runtime-floor:
+    name: Runtime floor (Node 18)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      # The brief pins a Node 18 runtime floor. Prove the compiled output
+      # actually loads and runs there rather than just claiming it in engines:
+      # boot with no configuration and assert it fails fast with a readable
+      # message instead of crashing on unsupported syntax.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Boot compiled output on Node 18
+        run: |
+          set +e
+          output=$(env -u DATABASE_URL node dist/index.js 2>&1)
+          status=$?
+          set -e
+          echo "$output"
+          if [ "$status" -ne 1 ]; then
+            echo "expected exit 1 from config validation, got $status" >&2
+            exit 1
+          fi
+          echo "$output" | grep -q 'DATABASE_URL is required' || {
+            echo "expected a readable config error" >&2
+            exit 1
+          }
