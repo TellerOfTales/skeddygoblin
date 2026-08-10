@@ -32,10 +32,6 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
 
-# Migrations are plain .sql read at runtime by the migration runner, so they
-# have to travel with the image rather than being compiled into it.
-COPY src/db/migrations ./dist/db/migrations
-
 # Drop privileges. The node image ships a `node` user for exactly this.
 USER node
 
