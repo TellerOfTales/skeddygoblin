@@ -1,10 +1,16 @@
 /**
- * Guild-scoped command registration.
+ * Command registration, global plus optionally guild-scoped.
  *
- * Guild-scoped ONLY during development: it propagates instantly, where global
- * registration can take up to an hour. The brief forbids global commands at
- * this stage, and config.ts makes DISCORD_GUILD_ID required so there is no
- * quiet path into registering them.
+ * GLOBAL is what makes the bot usable in more than one server: guild-scoped
+ * commands exist only in the guild they were registered to, so a bot invited
+ * anywhere else shows no commands at all - which looks exactly like a broken
+ * install.
+ *
+ * The cost of global is propagation: up to an hour before commands appear.
+ * That is why DISCORD_GUILD_ID still exists and still registers a guild-scoped
+ * copy alongside: in your own server the commands appear instantly, and Discord
+ * shows the guild copy in preference to the global one where the names collide,
+ * so nothing is duplicated.
  *
  * Re-run this (`npm run register`) whenever a command definition changes.
  */
@@ -19,13 +25,22 @@ export async function registerGuildCommands(): Promise<number> {
   const payload = commandPayload();
 
   const rest = new REST({ version: '10' }).setToken(token);
-  await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: payload });
 
-  logger.info('registered guild commands', {
-    guildId,
+  // Global first: this is the registration that matters for every server other
+  // than the development one, and it must not be skipped just because a guild
+  // registration failed.
+  await rest.put(Routes.applicationCommands(clientId), { body: payload });
+  logger.info('registered global commands', {
     count: payload.length,
     names: payload.map((command) => command.name),
+    note: 'global commands can take up to an hour to appear in a new server',
   });
+
+  if (guildId) {
+    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: payload });
+    logger.info('registered guild commands', { guildId, count: payload.length });
+  }
+
   return payload.length;
 }
 
@@ -86,7 +101,7 @@ export async function registerGuildCommandsAtBoot(
   // `on`, not `once`: being added to some OTHER server must not consume the
   // listener and leave the configured guild permanently without commands.
   const onJoin = (guild: { id: string }): void => {
-    if (guild.id !== guildId) return;
+    if (guildId === undefined || guild.id !== guildId) return;
     void register()
       .then(() => {
         client.off(Events.GuildCreate, onJoin);

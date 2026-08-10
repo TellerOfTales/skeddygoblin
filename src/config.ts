@@ -175,7 +175,7 @@ core.failFast('Core');
 export interface DiscordConfig {
   token: string;
   clientId: string;
-  guildId: string;
+  guildId: string | undefined;
   announceChannelId: string | undefined;
   autoRegisterCommands: boolean;
 }
@@ -190,11 +190,13 @@ export function requireDiscordConfig(): DiscordConfig {
     token: c.required('DISCORD_TOKEN'),
     clientId: c.snowflake('DISCORD_CLIENT_ID'),
     /**
-     * Required, deliberately. Stage 1 registers guild-scoped commands only, and
-     * a missing guild id is the exact failure that tempts you into registering
-     * globally - which the brief forbids and which takes an hour to propagate.
+     * Optional now. Commands register GLOBALLY so the bot works in every server
+     * it is invited to; a guild id additionally registers them to that one
+     * server, where they appear instantly instead of taking up to an hour to
+     * propagate. Keep it set on your development server, leave it unset in a
+     * deployment meant for other people's servers.
      */
-    guildId: c.snowflake('DISCORD_GUILD_ID'),
+    guildId: c.optionalSnowflake('DISCORD_GUILD_ID'),
     announceChannelId: c.optionalSnowflake('ANNOUNCE_CHANNEL_ID'),
     autoRegisterCommands: c.boolean('AUTO_REGISTER_COMMANDS', false),
   };
