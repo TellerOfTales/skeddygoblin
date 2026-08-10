@@ -1,0 +1,47 @@
+# Fly.io deployment.
+#
+# Change `app` to a name you own, then follow docs/RUNBOOK.md section 3.
+
+app = "skeddygoblin"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  # Managed Postgres requires TLS essentially everywhere.
+  DATABASE_SSL = "true"
+  SCHEDULER_ENABLED = "true"
+  # Register commands deliberately (npm run register), not on every restart:
+  # a boot loop would otherwise hammer the Discord API.
+  AUTO_REGISTER_COMMANDS = "false"
+  HTTP_PORT = "8080"
+  LOG_LEVEL = "info"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+
+  # BOTH must stay false. The scheduler is an in-process 60-second tick, so a
+  # machine that scales to zero stops firing the weekly prompt and the nudge
+  # cutoff - the bot would look alive (slash commands still wake it) while
+  # quietly never starting a week.
+  auto_stop_machines = false
+  auto_start_machines = false
+
+  # Exactly one instance. Correctness does not depend on it - every scheduled
+  # job claims its run through job_run, whose primary key is the lock - but
+  # steady state should be one.
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

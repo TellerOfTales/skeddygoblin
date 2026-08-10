@@ -19,6 +19,7 @@
     "test": "vitest run",
     "test:unit": "vitest run test/unit",
     "test:watch": "vitest",
+    "walkthrough": "vitest run test/integration/walkthrough.test.ts --reporter=verbose",
     "db:up": "bash scripts/dev-pg.sh up",
     "db:down": "bash scripts/dev-pg.sh down"
   },

@@ -5,6 +5,21 @@ deploying. Do them in that order — each depends on the one before.
 
 ---
 
+## 0. Seeing it work without any credentials
+
+Before touching Discord, you can watch the whole product run against a real database:
+
+```bash
+npm run db:up && npm run migrate && npm run walkthrough
+```
+
+That narrates one full week — four members answering, the ranked leaderboard, the roster,
+every buzz rule refusing where it should, Steam matching with prices, a session confirmed,
+and the board changing as capacity gets spent. It is everything except the Discord
+transport, so it is the fastest way to sanity-check a change.
+
+---
+
 ## 1. First run against real Discord
 
 Nothing in this codebase has ever touched a live gateway. The 188 tests use fake

@@ -104,6 +104,12 @@ export function createHttpServer(ctx: AppContext): Server {
     }
 
     if (url.pathname === '/steam/callback') {
+      // Mounted only when Steam is configured, so an unconfigured deployment
+      // returns a plain 404 rather than a confusing half-working link flow.
+      if (!optionalSteamConfig()) {
+        send(response, 404, page('Steam is not set up here', ''));
+        return;
+      }
       void handleCallback(ctx, url, response).catch((error: unknown) => {
         ctx.logger.error('steam callback crashed', { error });
         if (!response.headersSent) send(response, 500, page('Something went wrong', ''));
@@ -115,14 +121,25 @@ export function createHttpServer(ctx: AppContext): Server {
   });
 }
 
-/** Starts the callback server, or returns undefined when Steam is unconfigured. */
-export function startHttpServer(ctx: AppContext, port: number): Server | undefined {
-  if (!optionalSteamConfig()) {
-    ctx.logger.info('steam not configured, callback server not started');
-    return undefined;
-  }
+/**
+ * Starts the HTTP server.
+ *
+ * Always started, even without Steam: /healthz is what a platform health check
+ * hits, and a deployment that has not configured Steam still needs to be able
+ * to say it is alive. The Steam callback route simply is not mounted in that
+ * case.
+ */
+export function startHttpServer(ctx: AppContext, port: number): Server {
+  const steamReady = optionalSteamConfig() !== undefined;
 
   const server = createHttpServer(ctx);
-  server.listen(port, () => ctx.logger.info('steam callback server listening', { port }));
+  server.listen(port, () =>
+    ctx.logger.info('http server listening', { port, steamCallback: steamReady }),
+  );
+
+  if (!steamReady) {
+    ctx.logger.info('steam not configured: /steam/callback is not mounted');
+  }
+
   return server;
 }

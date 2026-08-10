@@ -93,13 +93,14 @@ async function main(): Promise<void> {
     },
   });
 
-  // Stage 2 only: starts nothing unless STEAM_API_KEY and PUBLIC_BASE_URL are set.
+  // Always up: /healthz is what a platform health check hits. The Steam
+  // callback route is only mounted when Steam is configured.
   const httpServer = startHttpServer(ctx, appConfig.httpPort);
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info('shutting down', { signal });
     scheduler?.stop();
-    httpServer?.close();
+    httpServer.close();
     await client.destroy();
     await pool.end();
     process.exit(0);
