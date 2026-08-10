@@ -24,7 +24,7 @@ import { migrate } from './db/migrate.js';
 import { createClient, loginAndWaitReady } from './discord/client.js';
 import { createRouter } from './discord/router.js';
 import { registerAllComponentHandlers } from './discord/components/registerAll.js';
-import { registerGuildCommands } from './discord/registerCommands.js';
+import { registerGuildCommandsAtBoot } from './discord/registerCommands.js';
 import { DiscordDMNotifier } from './notify/DiscordDMNotifier.js';
 import { NotifierRegistry } from './notify/registry.js';
 import { leaderboardView } from './discord/views/leaderboard.view.js';
@@ -71,13 +71,16 @@ async function main(): Promise<void> {
     total: migration.applied.length + migration.alreadyApplied.length,
   });
 
-  if (discord.autoRegisterCommands) {
-    phase = 'registering-commands';
-    await registerGuildCommands();
-  }
-
   phase = 'connecting-to-discord';
   const ready = await loginAndWaitReady(client);
+
+  // After login, not before: registration needs the bot to actually be in the
+  // guild, and having a live client is what lets a "not invited yet" failure
+  // resolve itself on guildCreate instead of needing a redeploy.
+  if (discord.autoRegisterCommands) {
+    phase = 'registering-commands';
+    await registerGuildCommandsAtBoot(ready);
+  }
 
   // Posting is the one scheduler job that genuinely needs a Discord channel, so
   // it is injected rather than reached for from inside the service layer.
