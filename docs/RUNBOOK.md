@@ -252,8 +252,18 @@ node dist/index.js
 ```
 
 Migrations run automatically at boot, guarded by an advisory lock, so a restart is safe.
-Point health checks at `GET /healthz` (only served when Steam is configured; otherwise use
-a process check).
+
+Point health checks at `GET /healthz`. It is always served — Steam configured or not — and
+it binds **before** migrations and before the Discord login, so a cold database or a slow
+gateway shows up as a live endpoint rather than a failed deploy. The body names the phase:
+
+| Body                       | Meaning                                                                                          |
+| -------------------------- | ------------------------------------------------------------------------------------------------ |
+| `ok migrating`             | Cannot reach Postgres, or migrations are still running. Check `DATABASE_URL` and `DATABASE_SSL`. |
+| `ok connecting-to-discord` | Database fine; the gateway handshake has not completed. Usually a bad `DISCORD_TOKEN`.           |
+| `ok ready`                 | Fully up.                                                                                        |
+
+If a health check ever fails outright, the process is dead — read the logs, not this table.
 
 ### 3.4 Fly.io, concretely
 
@@ -269,10 +279,31 @@ fly scale count 1     # one instance
 In `fly.toml`, set `internal_port = 8080` and — importantly —
 `auto_stop_machines = false`, or the scheduler sleeps and the weekly prompt never fires.
 
-Railway and Render work the same way: one instance, `npm run build` then
-`node dist/index.js`, and turn off any scale-to-zero.
+### 3.5 Railway, concretely
 
-### 3.5 After deploying
+Railway builds the `Dockerfile` and injects `PORT`, which the config reads in preference to
+`HTTP_PORT` — do **not** set `PORT` yourself.
+
+1. **New Project → Deploy from GitHub repo**, pick this repo and the branch.
+2. **+ Create → Database → Postgres**, in the same project.
+3. On the bot service → **Variables**:
+   - `DATABASE_URL` = `${{Postgres.DATABASE_URL}}` (the reference, not a pasted string —
+     this resolves to the private-network host)
+   - `DATABASE_SSL=false` — correct for `*.railway.internal`. Set it to `true` only if you
+     paste the _public_ proxy URL instead.
+   - `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID`, `ANNOUNCE_CHANNEL_ID`
+   - `NODE_ENV=production`, `LOG_LEVEL=info`, `AUTO_REGISTER_COMMANDS=true`
+   - `SCHEDULER_ENABLED=false` until the manual flow works
+4. **Settings → Deploy**: health check path `/healthz`, replicas **1**, and no scale-to-zero
+   (serverless off) — the scheduler is in-process and cannot fire while asleep.
+
+The build log and the runtime log are separate tabs. A failed health check with no
+application lines under it means you are reading the build log; the runtime log is where
+`skeddy goblin is up` and any config error appear.
+
+Render works the same way: one instance, the Dockerfile, `/healthz`, scale-to-zero off.
+
+### 3.6 After deploying
 
 ```bash
 npm run register     # once, against production credentials
@@ -281,7 +312,7 @@ npm run register     # once, against production credentials
 Then re-run the section 1.4 walkthrough in the real server. First real Monday, check the
 logs for `weekly prompt sent` with a plausible count.
 
-### 3.6 Backups
+### 3.7 Backups
 
 `weekly_response`, `availability_slot` and `vibe_tag` are the only data that would hurt to
 lose, and only for the current week. Whatever your provider's default backup is, that is

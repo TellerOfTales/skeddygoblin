@@ -93,13 +93,27 @@ async function handleCallback(ctx: AppContext, url: URL, response: ServerRespons
   }
 }
 
-export function createHttpServer(ctx: AppContext): Server {
+/**
+ * What the process is currently doing. Reported by /healthz so a deployment
+ * that is up but stuck (waiting on a database, waiting on the Discord gateway)
+ * says which, instead of looking identical to a healthy one.
+ */
+export type BootPhase =
+  'starting' | 'migrating' | 'registering-commands' | 'connecting-to-discord' | 'ready';
+
+export function createHttpServer(
+  ctx: AppContext,
+  bootPhase: () => BootPhase = () => 'ready',
+): Server {
   return createServer((request: IncomingMessage, response: ServerResponse) => {
     const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
 
     if (url.pathname === '/healthz') {
+      // Always 200 while the process is alive, including mid-boot. A health
+      // check that only passes once Discord has connected turns "the gateway is
+      // slow" into "the deploy failed", which is a much worse failure to debug.
       response.writeHead(200, { 'content-type': 'text/plain' });
-      response.end('ok');
+      response.end(`ok ${bootPhase()}`);
       return;
     }
 
@@ -124,15 +138,28 @@ export function createHttpServer(ctx: AppContext): Server {
 /**
  * Starts the HTTP server.
  *
- * Always started, even without Steam: /healthz is what a platform health check
- * hits, and a deployment that has not configured Steam still needs to be able
- * to say it is alive. The Steam callback route simply is not mounted in that
- * case.
+ * Started FIRST, before migrations and before the Discord login, and started
+ * even without Steam. /healthz is what a platform health check hits, and every
+ * platform kills a deployment that does not answer it within a couple of
+ * minutes - so binding the port must not sit behind a database round-trip or a
+ * gateway handshake. The Steam callback route simply is not mounted when Steam
+ * is unconfigured.
  */
-export function startHttpServer(ctx: AppContext, port: number): Server {
+export function startHttpServer(
+  ctx: AppContext,
+  port: number,
+  bootPhase: () => BootPhase = () => 'ready',
+): Server {
   const steamReady = optionalSteamConfig() !== undefined;
 
-  const server = createHttpServer(ctx);
+  const server = createHttpServer(ctx, bootPhase);
+
+  // Without this, a port clash is an unhandled 'error' event that kills the
+  // process with a stack trace and no explanation of which port.
+  server.on('error', (error: unknown) => {
+    ctx.logger.error('http server error', { port, error });
+  });
+
   server.listen(port, () =>
     ctx.logger.info('http server listening', { port, steamCallback: steamReady }),
   );
