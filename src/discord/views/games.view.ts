@@ -23,8 +23,14 @@ import { formatPrice } from '../../domain/gameMatching.js';
 import { encodeCustomId, toBase36 } from '../customId.js';
 import type { GameOption, SuggestedGame } from '../../services/gameService.js';
 
-function price(game: { priceCents: number | null; currency: string | null }): string {
-  const formatted = formatPrice(game.priceCents, game.currency);
+function price(game: {
+  priceCents: number | null;
+  currency: string | null;
+  priceCentsUsd?: number | null;
+}): string {
+  const formatted = formatPrice(game.priceCents, game.currency, {
+    usdMinorUnits: game.priceCentsUsd ?? null,
+  });
   return formatted === null ? '' : ` · ${formatted}`;
 }
 

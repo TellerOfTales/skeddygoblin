@@ -7,7 +7,7 @@ import { DomainError } from '../domain/errors.js';
 import * as steam from '../db/repositories/steam.js';
 import * as users from '../db/repositories/users.js';
 import {
-  fetchAppMeta,
+  fetchAppMetaWithUsd,
   fetchOwnedGames,
   sleep,
   SteamProfilePrivateError,
@@ -111,9 +111,13 @@ export async function syncLibrary(
  */
 export async function refreshAppMetadata(
   ctx: AppContext,
-  options: { limit?: number } = {},
+  options: { limit?: number; countryCode?: string } = {},
 ): Promise<number> {
   requireSteam();
+
+  // Which storefront the cached price describes. Defaults to US, which is also
+  // what makes the bracketed reference price free in that case.
+  const countryCode = (options.countryCode ?? 'US').toUpperCase();
 
   const appIds = await steam.listAppIdsNeedingMeta(ctx.db, {
     limit: options.limit ?? 40,
@@ -123,7 +127,7 @@ export async function refreshAppMetadata(
   let fetched = 0;
   for (const appId of appIds) {
     try {
-      const meta = await fetchAppMeta(appId);
+      const meta = await fetchAppMetaWithUsd(appId, countryCode);
       if (meta) {
         await steam.upsertAppMeta(ctx.db, meta);
         fetched++;

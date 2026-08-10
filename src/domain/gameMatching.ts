@@ -102,14 +102,53 @@ export function vibeScore(
 export function formatPrice(
   minorUnits: number | null,
   currency: string | null,
-  locale = 'en-GB',
+  options: { usdMinorUnits?: number | null; locale?: string } = {},
+): string | null {
+  const locale = options.locale ?? 'en-GB';
+  const local = formatOne(minorUnits, currency, locale);
+  if (local === null) return null;
+
+  const usd = options.usdMinorUnits ?? null;
+
+  // No brackets when they would add nothing: the group is already on the US
+  // storefront, we never fetched a reference, or the two prices are identical
+  // anyway. "$29.99 ($29.99)" is noise.
+  if (usd === null || currency === null || currency.toUpperCase() === 'USD') return local;
+  if (usd === minorUnits && currency.toUpperCase() === 'USD') return local;
+
+  const reference = formatOne(usd, 'USD', locale);
+  if (reference === null || reference === local) return local;
+
+  return `${local} (${reference})`;
+}
+
+/**
+ * One price, one currency.
+ *
+ * Steam reports every currency with two implied decimals - including
+ * zero-decimal ones, so a 2,970 yen game arrives as 297000, not 2970. Dividing
+ * by 100 unconditionally is therefore correct, and Intl handles the display
+ * rounding per locale from there.
+ */
+function formatOne(
+  minorUnits: number | null,
+  currency: string | null,
+  locale: string,
 ): string | null {
   if (minorUnits === null) return null;
   if (minorUnits === 0) return 'Free';
   if (!currency) return (minorUnits / 100).toFixed(2);
 
+  // USD is always rendered US-style, so it reads as "$19.99" rather than the
+  // "US$19.99" a non-US locale would produce. The bracketed figure is labelled
+  // by its position, not by a disambiguating prefix, and the symbol matching
+  // what everyone has seen on the Steam store page is what makes it scannable.
+  const currencyLocale = currency.toUpperCase() === 'USD' ? 'en-US' : locale;
+
   try {
-    return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(minorUnits / 100);
+    return new Intl.NumberFormat(currencyLocale, { style: 'currency', currency }).format(
+      minorUnits / 100,
+    );
   } catch {
     // An unrecognised currency code should not take a message down.
     return `${(minorUnits / 100).toFixed(2)} ${currency}`;

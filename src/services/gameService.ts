@@ -141,6 +141,7 @@ export interface GameOption {
   votedByMe: boolean;
   /** From the shared metadata cache, so the shortlist shows what it costs. */
   priceCents: number | null;
+  priceCentsUsd: number | null;
   currency: string | null;
   storeUrl: string | null;
 }
@@ -149,6 +150,7 @@ export interface ResolvedGame {
   name: string;
   appId: number | null;
   priceCents: number | null;
+  priceCentsUsd: number | null;
   currency: string | null;
   storeUrl: string | null;
 }
@@ -182,6 +184,7 @@ export async function resolveNomination(
       name: exactOwned.name,
       appId: exactOwned.appId,
       priceCents: exactOwned.priceCents,
+      priceCentsUsd: exactOwned.priceCentsUsd,
       currency: exactOwned.currency,
       storeUrl: exactOwned.storeUrl,
     };
@@ -206,6 +209,10 @@ export async function resolveNomination(
         multiplayer: false,
         priceCents: best.priceCents,
         currency: best.currency,
+        priceCountry: params.countryCode.toUpperCase(),
+        // storesearch prices one storefront per call; the reference price is
+        // filled in by the metadata refresh rather than by a second search.
+        priceCentsUsd: params.countryCode.toUpperCase() === 'US' ? best.priceCents : null,
         storeUrl: best.storeUrl,
       });
 
@@ -213,6 +220,7 @@ export async function resolveNomination(
         name: best.name,
         appId: best.appId,
         priceCents: best.priceCents,
+        priceCentsUsd: params.countryCode.toUpperCase() === 'US' ? best.priceCents : null,
         currency: best.currency,
         storeUrl: best.storeUrl,
       };
@@ -222,7 +230,14 @@ export async function resolveNomination(
     ctx.logger.warn('store search failed, nominating unresolved', { query, error });
   }
 
-  return { name: query, appId: null, priceCents: null, currency: null, storeUrl: null };
+  return {
+    name: query,
+    appId: null,
+    priceCents: null,
+    priceCentsUsd: null,
+    currency: null,
+    storeUrl: null,
+  };
 }
 
 export async function nominateGame(

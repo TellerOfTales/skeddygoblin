@@ -120,8 +120,43 @@ export async function fetchAppMeta(
     multiplayer: isMultiplayer(categories),
     priceCents: entry.data.is_free ? 0 : (entry.data.price_overview?.final ?? null),
     currency: entry.data.price_overview?.currency ?? null,
+    priceCountry: (options.countryCode ?? 'US').toUpperCase(),
+    priceCentsUsd: null,
     storeUrl: `https://store.steampowered.com/app/${appId}`,
   };
+}
+
+/**
+ * Metadata priced in the group's storefront, plus the US price for reference.
+ *
+ * Two calls, not one, because Steam prices regionally and there is no
+ * conversion that would give the same answer - a US price is a fact about the
+ * US storefront, not a currency-converted local price. The second call is
+ * skipped when the group already IS on the US storefront, which is both the
+ * common case for the default config and the one where brackets would be
+ * meaningless.
+ */
+export async function fetchAppMetaWithUsd(
+  appId: number,
+  countryCode: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<AppMeta | null> {
+  const local = await fetchAppMeta(appId, { countryCode }, fetchImpl);
+  if (!local) return null;
+
+  if (local.priceCountry === 'US') return { ...local, priceCentsUsd: local.priceCents };
+
+  await sleep(STORE_REQUEST_DELAY_MS);
+
+  try {
+    const usd = await fetchAppMeta(appId, { countryCode: 'US' }, fetchImpl);
+    return { ...local, priceCentsUsd: usd?.priceCents ?? null };
+  } catch {
+    // A missing reference price is a cosmetic loss - the local price, which is
+    // the one that matters, is already in hand. Never fail the whole app over
+    // the bracketed figure.
+    return local;
+  }
 }
 
 /** Politeness delay between Store API calls. See the rate limit note above. */

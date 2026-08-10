@@ -85,11 +85,28 @@ export async function runTick(ctx: AppContext, hooks: SchedulerHooks): Promise<v
     try {
       // Bounded per tick, and rate limited inside - the Steam Store endpoint
       // allows roughly 200 requests per 5 minutes and nothing here is urgent.
-      await refreshAppMetadata(ctx);
+      // One storefront per pass. steam_app_meta is keyed by app_id alone, so
+      // the cached price describes whichever country ran last; with a single
+      // group that is simply that group's country, which is what we want.
+      await refreshAppMetadata(ctx, { countryCode: await primaryCountryCode(ctx) });
     } catch (error) {
       ctx.logger.error('steam metadata refresh failed', { error });
     }
   }
+}
+
+/**
+ * The storefront to price against.
+ *
+ * Stage 1 is one group per deployment, so this is just that group's country.
+ * With several groups the cache holds one price, and the lowest group id wins
+ * deterministically rather than flapping between countries on every tick - a
+ * stable wrong answer being far easier to notice than an unstable one.
+ */
+async function primaryCountryCode(ctx: AppContext): Promise<string> {
+  const all = await groups.listAllGroups(ctx.db);
+  const first = [...all].sort((a, b) => Number(a.id) - Number(b.id))[0];
+  return first?.countryCode ?? 'US';
 }
 
 export interface Scheduler {

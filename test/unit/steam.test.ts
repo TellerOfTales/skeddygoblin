@@ -231,7 +231,9 @@ describe('vibe matching', () => {
 describe('price formatting', () => {
   it('renders in the storefront currency, symbol and all', () => {
     expect(formatPrice(1499, 'GBP')).toBe('£14.99');
-    expect(formatPrice(1499, 'USD')).toBe('US$14.99');
+    // Deliberately "$", not the "US$" a non-US locale would otherwise produce:
+    // it has to match what people saw on the store page.
+    expect(formatPrice(1499, 'USD')).toBe('$14.99');
     expect(formatPrice(1499, 'EUR')).toBe('€14.99');
   });
 
@@ -333,5 +335,44 @@ describe('TwilioSMSNotifier scaffold', () => {
     expect(resolveSmsReply(payload, ' 2 ')).toEqual({ kind: 'opt_out_week', groupId: 1 });
     expect(resolveSmsReply(payload, '9')).toBeUndefined();
     expect(resolveSmsReply(payload, 'yes please')).toBeUndefined();
+  });
+});
+
+describe('formatPrice with a USD reference', () => {
+  // Steam prices regionally rather than converting, so the bracketed figure is
+  // a second real price - not the local one run through an exchange rate.
+  it('shows the local price with USD in brackets', () => {
+    expect(formatPrice(1699, 'GBP', { usdMinorUnits: 2199 })).toBe('£16.99 ($21.99)');
+  });
+
+  it('drops the brackets when the local currency IS USD', () => {
+    expect(formatPrice(2199, 'USD', { usdMinorUnits: 2199 })).toBe('$21.99');
+  });
+
+  it('drops the brackets when no reference price was fetched', () => {
+    expect(formatPrice(1699, 'GBP', { usdMinorUnits: null })).toBe('£16.99');
+    expect(formatPrice(1699, 'GBP')).toBe('£16.99');
+  });
+
+  it('drops the brackets when both prices render identically', () => {
+    // Nothing is communicated by "£16.99 (£16.99)".
+    expect(formatPrice(1699, 'USD', { usdMinorUnits: 1699 })).toBe('$16.99');
+  });
+
+  it('says Free once, not twice', () => {
+    expect(formatPrice(0, 'GBP', { usdMinorUnits: 0 })).toBe('Free');
+  });
+
+  it('still reports an unknown price as unknown', () => {
+    expect(formatPrice(null, 'GBP', { usdMinorUnits: 2199 })).toBeNull();
+  });
+
+  /**
+   * Steam reports every currency with two implied decimals, INCLUDING
+   * zero-decimal ones - a ¥2,970 game arrives as 297000, not 2970. Getting this
+   * wrong is a factor-of-100 error on the price people decide by.
+   */
+  it('handles a zero-decimal currency without inventing a factor of 100', () => {
+    expect(formatPrice(297000, 'JPY', { usdMinorUnits: 1999 })).toBe('JP¥2,970 ($19.99)');
   });
 });

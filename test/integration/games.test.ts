@@ -49,6 +49,8 @@ async function seedLibraries(
     multiplayer: true,
     priceCents: 0,
     currency: 'USD',
+    priceCentsUsd: 0,
+    priceCountry: 'US',
     storeUrl: 'https://store.steampowered.com/app/730',
   });
   await steam.upsertAppMeta(ctx.db, {
@@ -59,6 +61,8 @@ async function seedLibraries(
     multiplayer: true,
     priceCents: 1499,
     currency: 'USD',
+    priceCentsUsd: 1499,
+    priceCountry: 'US',
     storeUrl: 'https://store.steampowered.com/app/413150',
   });
 
@@ -318,6 +322,7 @@ describe('nominations and voting', () => {
         'currency',
         'gameName',
         'priceCents',
+        'priceCentsUsd',
         'storeUrl',
         'voteId',
         'votedByMe',
@@ -363,6 +368,8 @@ describe('library sync bookkeeping', () => {
         multiplayer: true,
         priceCents: 0,
         currency: 'USD',
+        priceCentsUsd: 0,
+        priceCountry: 'US',
         storeUrl: 'https://store.steampowered.com/app/730',
       });
 

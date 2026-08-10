@@ -17,6 +17,10 @@ export interface AppMeta {
   multiplayer: boolean;
   priceCents: number | null;
   currency: string | null;
+  /** Storefront the local price came from, so a stale-country price is visible. */
+  priceCountry: string | null;
+  /** The US storefront's price, shown in brackets as a reference point. */
+  priceCentsUsd: number | null;
   storeUrl: string | null;
 }
 
@@ -88,8 +92,9 @@ export async function lastSyncedAtForSelf(db: Queryable, selfUserId: UserId): Pr
 export async function upsertAppMeta(db: Queryable, meta: AppMeta): Promise<void> {
   await db.query(
     `INSERT INTO steam_app_meta
-       (app_id, name, categories, genres, multiplayer, price_cents, currency, store_url)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       (app_id, name, categories, genres, multiplayer, price_cents, currency,
+        price_country, price_cents_usd, store_url)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      ON CONFLICT (app_id) DO UPDATE SET
        name = EXCLUDED.name,
        categories = EXCLUDED.categories,
@@ -97,6 +102,8 @@ export async function upsertAppMeta(db: Queryable, meta: AppMeta): Promise<void>
        multiplayer = EXCLUDED.multiplayer,
        price_cents = EXCLUDED.price_cents,
        currency = EXCLUDED.currency,
+       price_country = EXCLUDED.price_country,
+       price_cents_usd = EXCLUDED.price_cents_usd,
        store_url = EXCLUDED.store_url,
        fetched_at = now()`,
     [
@@ -107,6 +114,8 @@ export async function upsertAppMeta(db: Queryable, meta: AppMeta): Promise<void>
       meta.multiplayer,
       meta.priceCents,
       meta.currency,
+      meta.priceCountry,
+      meta.priceCentsUsd,
       meta.storeUrl,
     ],
   );
@@ -159,6 +168,8 @@ export async function listSharedGamesAggregate(
     multiplayer: boolean;
     price_cents: number | null;
     currency: string | null;
+    price_cents_usd: number | null;
+    price_country: string | null;
     store_url: string | null;
     owner_count: number;
   }>(
@@ -170,6 +181,8 @@ export async function listSharedGamesAggregate(
        COALESCE(m.multiplayer, bool_or(c.multiplayer)) AS multiplayer,
        m.price_cents,
        m.currency,
+       m.price_cents_usd,
+       m.price_country,
        m.store_url,
        COUNT(*)::bigint AS owner_count
      FROM steam_library_cache c
@@ -182,7 +195,7 @@ export async function listSharedGamesAggregate(
      WHERE ($4::boolean IS NOT TRUE)
         OR COALESCE(m.multiplayer, c.multiplayer) IS TRUE
      GROUP BY m.app_id, c.app_id, m.name, m.categories, m.genres, m.multiplayer,
-              m.price_cents, m.currency, m.store_url
+              m.price_cents, m.currency, m.price_cents_usd, m.price_country, m.store_url
      HAVING COUNT(*) >= $3
      ORDER BY owner_count DESC, name ASC
      LIMIT $5`,
@@ -203,6 +216,8 @@ export async function listSharedGamesAggregate(
     multiplayer: row.multiplayer,
     priceCents: row.price_cents,
     currency: row.currency,
+    priceCentsUsd: row.price_cents_usd,
+    priceCountry: row.price_country,
     storeUrl: row.store_url,
     ownerCount: row.owner_count,
   }));

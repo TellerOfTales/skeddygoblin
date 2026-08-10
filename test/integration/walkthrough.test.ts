@@ -145,6 +145,8 @@ describe('walkthrough', () => {
         multiplayer: true,
         priceCents: 0,
         currency: 'GBP',
+        priceCentsUsd: 0,
+        priceCountry: 'GB',
         storeUrl: 'https://store.steampowered.com/app/730',
       });
       await steam.upsertAppMeta(ctx.db, {
@@ -155,6 +157,8 @@ describe('walkthrough', () => {
         multiplayer: false,
         priceCents: 1699,
         currency: 'GBP',
+        priceCentsUsd: 2199,
+        priceCountry: 'GB',
         storeUrl: 'https://store.steampowered.com/app/1145360',
       });
       await steam.upsertAppMeta(ctx.db, {
@@ -165,6 +169,8 @@ describe('walkthrough', () => {
         multiplayer: true,
         priceCents: 1099,
         currency: 'GBP',
+        priceCentsUsd: 1399,
+        priceCountry: 'GB',
         storeUrl: 'https://store.steampowered.com/app/413150',
       });
       await steam.upsertAppMeta(ctx.db, {
@@ -175,6 +181,8 @@ describe('walkthrough', () => {
         multiplayer: true,
         priceCents: 1619,
         currency: 'GBP',
+        priceCentsUsd: 2099,
+        priceCountry: 'GB',
         storeUrl: 'https://store.steampowered.com/app/892970',
       });
 
@@ -191,7 +199,7 @@ describe('walkthrough', () => {
       const page = await suggestGamesPage(ctx, { ...scope, pageSize: 3 });
       for (const g of page.games) {
         say(
-          `  ${g.name} — ${g.ownerCount} of you own it · ${formatPrice(g.priceCents, g.currency)} · fit ${(g.vibeFit * 100).toFixed(0)}%`,
+          `  ${g.name} — ${g.ownerCount} of you own it · ${formatPrice(g.priceCents, g.currency, { usdMinorUnits: g.priceCentsUsd })} · fit ${(g.vibeFit * 100).toFixed(0)}%`,
         );
       }
       say(`  page ${page.page + 1} of ${page.totalPages} (${page.total} shared)`);
