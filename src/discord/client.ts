@@ -3,22 +3,32 @@ import { requireDiscordConfig } from '../config.js';
 import { logger } from '../logger.js';
 
 /**
- * Intents: Guilds ONLY. No privileged intents, deliberately.
+ * Intents: Guilds, DirectMessages, and - deliberately, with eyes open -
+ * the privileged GuildMembers.
  *
- * The obvious way to build the status roster is to fetch the guild member list,
- * which needs the privileged GUILD_MEMBERS intent plus a developer-portal
- * toggle. We avoid it entirely: group membership is opt-in (a Join button on
- * the weekly post), so the roster is group_membership rows - which is more
- * honest anyway, since it lists people who actually play rather than everyone
- * who ever joined the server. Names are rendered as <@id> mentions with pings
- * suppressed, so no member fetch and no stored PII beyond a snowflake.
+ * The original design avoided GuildMembers entirely: membership was opt-in, so
+ * the roster listed people who actually play rather than everyone who ever
+ * joined the server. That is still the more honest roster, but it cannot
+ * satisfy the thing this bot is FOR: one person running /availability should
+ * pull the whole group in, not just themselves. Without the member list the bot
+ * has no way to learn who to ask.
+ *
+ * The cost is real and worth stating: GuildMembers must be toggled on in the
+ * Discord developer portal, and a bot in 100+ servers needs verification to
+ * keep it. What we do with it stays narrow - fetch snowflakes, store snowflakes,
+ * DM them. No names, no avatars, no presence; the roster still renders <@id>
+ * with pings suppressed and still stores no PII beyond the id.
  *
  * DirectMessages + the Channel partial are needed to receive component
  * interactions on DMs the bot itself sent.
  */
 export function createClient(): Client {
   return new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages],
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.DirectMessages,
+      GatewayIntentBits.GuildMembers,
+    ],
     partials: [Partials.Channel],
   });
 }

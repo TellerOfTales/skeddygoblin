@@ -292,3 +292,59 @@ describe('session proposal loop', () => {
     });
   });
 });
+
+/**
+ * "If even one person runs /availability, everyone gets a DM — up to once a
+ * week." The exactly-once half is what these cover; the enrolment half lives in
+ * the Discord layer, which is the only thing that can see a guild member list.
+ */
+describe('one person asking pulls the whole group in', () => {
+  it('does not double-DM the person who triggered it', async () => {
+    await withRollback(async (ctx) => {
+      const { group, members } = await makeGroupWithMembers(ctx, 3);
+      const week = currentWeek(ctx, group.timezone);
+
+      // The command already DM'd the actor directly before broadcasting.
+      const outcome = await runWeeklyPrompt(ctx, group, week, {
+        excludeUserId: members[0]!.id,
+      });
+
+      expect(outcome.prompted).toBe(2);
+      const promptedIds = ctx.notifier.sent.map((notification) => notification.user.id);
+      expect(promptedIds).not.toContain(members[0]!.id);
+    });
+  });
+
+  it('sends once however many people run the command', async () => {
+    await withRollback(async (ctx) => {
+      const { group, members } = await makeGroupWithMembers(ctx, 4);
+      const week = currentWeek(ctx, group.timezone);
+
+      // Three different people run /availability in quick succession. The
+      // job_run primary key is what makes the second and third no-ops.
+      const outcomes = [
+        await runWeeklyPrompt(ctx, group, week, { excludeUserId: members[0]!.id }),
+        await runWeeklyPrompt(ctx, group, week, { excludeUserId: members[1]!.id }),
+        await runWeeklyPrompt(ctx, group, week, { excludeUserId: members[2]!.id }),
+      ];
+
+      expect(outcomes.map((outcome) => outcome.ran)).toEqual([true, false, false]);
+      expect(ctx.notifier.sent).toHaveLength(3);
+    });
+  });
+
+  it('asks again the following week', async () => {
+    await withRollback(async (ctx) => {
+      const { group } = await makeGroupWithMembers(ctx, 2);
+      const week = currentWeek(ctx, group.timezone);
+      const nextWeek = new Date(`${week}T00:00:00Z`);
+      nextWeek.setUTCDate(nextWeek.getUTCDate() + 7);
+
+      const first = await runWeeklyPrompt(ctx, group, week);
+      const second = await runWeeklyPrompt(ctx, group, nextWeek.toISOString().slice(0, 10));
+
+      // Once per week, not once ever.
+      expect([first.ran, second.ran]).toEqual([true, true]);
+    });
+  });
+});

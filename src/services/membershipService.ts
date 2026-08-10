@@ -80,6 +80,40 @@ export async function requireOrganizer(actor: Actor): Promise<void> {
   if (actor.role !== 'organizer') throw new DomainError('NOT_ORGANIZER');
 }
 
+/**
+ * Enrols a whole server's worth of people at once.
+ *
+ * The bot cannot know who is in a Discord server without being told - it holds
+ * no member list of its own - so the caller passes the snowflakes it fetched
+ * and this turns them into users and memberships. Idempotent: ensureUser and
+ * ensureMembership both upsert, so re-running it every week costs nothing and
+ * picks up anyone who joined since.
+ *
+ * Returns how many were newly enrolled, which is only useful for logging.
+ */
+export async function enrolDiscordMembers(
+  ctx: AppContext,
+  groupId: number,
+  discordUserIds: readonly string[],
+): Promise<number> {
+  let enrolled = 0;
+
+  for (const discordUserId of discordUserIds) {
+    await ctx.db.withTransaction(async (tx) => {
+      const user = await users.ensureUser(tx, discordUserId, {
+        timezone: config.defaultGroupTimezone,
+      });
+      const existing = await memberships.findMembership(tx, user.id, groupId);
+      if (!existing) {
+        await memberships.ensureMembership(tx, user.id, groupId);
+        enrolled++;
+      }
+    });
+  }
+
+  return enrolled;
+}
+
 export async function joinGroup(ctx: AppContext, userId: number, groupId: number): Promise<void> {
   await memberships.ensureMembership(ctx.db, userId, groupId);
 }

@@ -58,6 +58,7 @@ export async function runWeeklyPrompt(
   ctx: AppContext,
   group: GroupRecord,
   week: IsoDate,
+  options: { excludeUserId?: number } = {},
 ): Promise<PromptOutcome> {
   const claimed = await jobRuns.claimJob(ctx.db, {
     groupId: group.id,
@@ -73,7 +74,9 @@ export async function runWeeklyPrompt(
       weekStartDate: week,
     }),
   );
-  const pending = memberIds.filter((id) => !responded.has(id));
+  // The person who triggered this has already been DM'd by the command itself;
+  // sending again would land two identical prompts seconds apart.
+  const pending = memberIds.filter((id) => !responded.has(id) && id !== options.excludeUserId);
   const recipients = await users.listUsersByIds(ctx.db, pending);
 
   let prompted = 0;

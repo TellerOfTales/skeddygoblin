@@ -3,6 +3,7 @@ import type { AppContext } from '../../services/context.js';
 import { resolveActor, promoteFirstMemberToOrganizer } from '../../services/membershipService.js';
 import { currentWeek } from '../../services/responseService.js';
 import { sendWeeklyPrompt } from '../../services/weeklyFlowService.js';
+import { broadcastWeeklyPrompt } from '../guildBroadcast.js';
 
 export const data = new SlashCommandBuilder()
   .setName('availability')
@@ -41,8 +42,28 @@ export async function execute(
     weekStartDate: week,
   });
 
+  // One person asking pulls the whole server in - that is the point of the
+  // command. Deliberately NOT awaited: enrolling and DMing everyone takes far
+  // longer than the interaction token lives, and the person who ran this should
+  // not wait on other people's DMs. Exactly-once-per-week is enforced inside,
+  // by a job_run claim, so a second /availability this week is a no-op.
+  if (interaction.guild) {
+    void broadcastWeeklyPrompt(ctx, {
+      guild: interaction.guild,
+      group: actor.group,
+      week,
+      excludeUserId: actor.user.id,
+    });
+  }
+
   if (result.ok) {
-    await interaction.editReply("Sent you a DM. 🧌 It's two taps if this week is a write-off.");
+    await interaction.editReply(
+      [
+        "Sent you a DM. 🧌 It's two taps if this week is a write-off.",
+        '',
+        "I'm asking everyone else in the server too — once a week, so nobody gets pestered.",
+      ].join('\n'),
+    );
     return;
   }
 
