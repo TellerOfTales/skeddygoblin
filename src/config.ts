@@ -155,8 +155,15 @@ export const config = Object.freeze({
 
   defaultGroupTimezone: core.timezone('DEFAULT_GROUP_TIMEZONE', 'UTC'),
 
-  /** Port for the Steam OpenID callback server. Unused until Steam is set up. */
-  httpPort: core.integer('HTTP_PORT', 8080, 1, 65_535),
+  /**
+   * Port for the HTTP server (health check, and the Steam callback when
+   * configured).
+   *
+   * PORT wins because every hosting platform injects it - Railway, Render,
+   * Heroku, Fly - and a bot that ignores it looks healthy while being
+   * unreachable. HTTP_PORT stays as the explicit local override.
+   */
+  httpPort: core.integer('PORT', core.integer('HTTP_PORT', 8080, 1, 65_535), 1, 65_535),
 });
 
 core.failFast('Core');
