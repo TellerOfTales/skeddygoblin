@@ -5,6 +5,9 @@ your week and it finds when your friend group overlaps, matches shared Steam Lib
 the vibe, and nudges anyone who hasn't responded. Skeddy Goblin does the work for you —
 scheduling, coordinating, and pinging.
 
+**Getting it running for the first time, setting up Steam, and deploying are all in
+[`docs/RUNBOOK.md`](docs/RUNBOOK.md).**
+
 ## Quick start
 
 ```bash
@@ -87,6 +90,17 @@ src/
   scheduler/   weekly prompt and nudge cutoff jobs
 ```
 
+## Vibes are Steam terms
+
+A vibe tag is an exact string from Steam's own `genres`/`categories` lists, so matching a
+game to a mood is plain membership rather than a hand-written mapping. Steam's _user_ tags
+("Relaxing", "Story Rich") are deliberately not used: the official `appdetails` endpoint
+does not return them, and scraping a store page for them means depending on markup that
+changes without warning.
+
+Changing the list is a one-line migration — it is a `CHECK` constraint, mirrored by
+`VIBE_TAGS` in `src/domain/constants.ts`.
+
 ## Steam (Stage 2)
 
 Steam features stay completely dormant unless both `STEAM_API_KEY` and
@@ -108,6 +122,11 @@ Game _metadata_ lives in `steam_app_meta`, keyed by app id and shared across eve
 so eight members owning the same game costs one Store API call, not eight. The Store
 endpoint allows roughly 200 requests per 5 minutes, which is what makes that cache the
 difference between sync working and getting the bot blocked.
+
+Prices come from the group's own storefront (`/setup country:GB`), because Steam prices
+regionally — a UK group shown US dollars is being told something false. `/propose` falls
+back to a live Steam store search when nobody owns the game yet, so nominating something
+new still shows what it would cost.
 
 **The same privacy rule applies to libraries.** A game carries an owner _count_ and never
 an owner list: "6 of you own this" is an aggregate, "Bob owns this" is a disclosure about

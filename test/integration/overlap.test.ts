@@ -334,7 +334,7 @@ describe('P4: k-anonymity floor', () => {
           weekStartDate: week,
           sessionsCommitted: 2,
           slots: [{ dayOfWeek: 1, window: 'evening' }],
-          vibes: ['chill'],
+          vibes: ['Casual'],
         });
       }
 

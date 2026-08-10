@@ -26,7 +26,7 @@ const SRC = new URL('../../src/', import.meta.url).pathname;
  * DIFFERENT member can see contains none of them.
  *
  * The markers are chosen so that leaking would be unmistakable: B is the only
- * member available late_night on Sunday, and the only one who picked 'chaos'.
+ * member available late_night on Sunday, and the only one who picked 'Action'.
  */
 describe('P1: no raw record reaches another member', () => {
   it('keeps one member’s availability, capacity and vibes out of group views', async () => {
@@ -43,7 +43,7 @@ describe('P1: no raw record reaches another member', () => {
         ...scope,
         sessionsCommitted: 1,
         slots: [{ dayOfWeek: 0, window: 'evening' }],
-        vibes: ['chill'],
+        vibes: ['Casual'],
       });
       await submit(ctx, {
         userId: b.id,
@@ -54,7 +54,7 @@ describe('P1: no raw record reaches another member', () => {
           // B alone is free here.
           { dayOfWeek: 6, window: 'late_night' },
         ],
-        vibes: ['chaos'],
+        vibes: ['Action'],
       });
       // C opted out, which must not be distinguishable from having submitted.
       await optOut(ctx, { userId: c.id, ...scope });
@@ -104,7 +104,7 @@ describe('P1: no raw record reaches another member', () => {
         ...scope,
         sessionsCommitted: 4,
         slots: [{ dayOfWeek: 3, window: 'night' }],
-        vibes: ['sweaty'],
+        vibes: ['Action'],
       });
 
       const { getOwnSubmission } = await import('../../src/services/responseService.js');

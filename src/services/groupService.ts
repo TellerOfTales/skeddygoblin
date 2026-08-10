@@ -15,6 +15,7 @@ export async function updateGroupSettings(
   groupId: GroupId,
   settings: {
     timezone?: string;
+    countryCode?: string;
     announceChannelId?: string | null;
     nudgeCutoffDay?: Day;
     nudgeCutoffTime?: string;
@@ -22,6 +23,12 @@ export async function updateGroupSettings(
 ): Promise<GroupRecord> {
   if (settings.timezone !== undefined && !isValidTimezone(settings.timezone)) {
     throw new DomainError('INVALID_INPUT', `Unknown timezone: ${settings.timezone}`);
+  }
+  if (settings.countryCode !== undefined && !/^[A-Z]{2}$/.test(settings.countryCode)) {
+    throw new DomainError(
+      'INVALID_INPUT',
+      `Country must be a two-letter code like GB or US, got: ${settings.countryCode}`,
+    );
   }
   return groups.updateGroupSettings(ctx.db, groupId, settings);
 }

@@ -45,6 +45,8 @@ export interface GroupRecord {
   discordGuildId: string;
   name: string;
   timezone: string;
+  /** Steam storefront country. Decides both the price and the currency. */
+  countryCode: string;
   announceChannelId: string | null;
   nudgeCutoffDay: Day;
   nudgeCutoffTime: string;

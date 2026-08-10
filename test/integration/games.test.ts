@@ -37,7 +37,7 @@ async function seedLibraries(
       weekStartDate: week,
       sessionsCommitted: 2,
       slots: [{ dayOfWeek: 2, window: 'evening' }],
-      vibes: ['competitive'],
+      vibes: ['Online PvP'],
     });
   }
 
@@ -164,7 +164,7 @@ describe('vibe-filtered suggestions', () => {
         await steam.replaceLibraryForSelf(ctx.db, member.id, [CS2, STARDEW]);
       }
 
-      // Everyone picked 'competitive' in seedLibraries.
+      // Everyone picked 'Online PvP' in seedLibraries.
       const suggestions = await suggestGames(ctx, { groupId: group.id, weekStartDate: week });
 
       expect(suggestions[0]?.name).toBe('Counter-Strike 2');
@@ -311,10 +311,14 @@ describe('nominations and voting', () => {
 
       expect(options[0]?.votes).toBe(2);
       expect(options[0]?.votedByMe).toBe(false);
-      // votedByMe is self-scoped: no other member's choice is represented.
+      // votedByMe is self-scoped: no other member's choice is represented, and
+      // the extra fields are app metadata (price, link) rather than user data.
       expect(Object.keys(options[0]!).sort()).toEqual([
         'appId',
+        'currency',
         'gameName',
+        'priceCents',
+        'storeUrl',
         'voteId',
         'votedByMe',
         'votes',

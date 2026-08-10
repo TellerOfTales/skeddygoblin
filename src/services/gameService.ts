@@ -6,9 +6,10 @@
  * aggregate; "Bob owns this" is a raw disclosure about Bob's library.
  */
 
-import { MIN_AGGREGATE_HEADCOUNT } from '../domain/constants.js';
+import { GAMES_PAGE_SIZE, MIN_AGGREGATE_HEADCOUNT } from '../domain/constants.js';
 import { DomainError } from '../domain/errors.js';
 import { vibeScore } from '../domain/gameMatching.js';
+import { searchStore } from '../steam/clients.js';
 import * as gameVotes from '../db/repositories/gameVotes.js';
 import * as steam from '../db/repositories/steam.js';
 import * as vibes from '../db/repositories/vibes.js';
@@ -29,6 +30,50 @@ export interface SuggestedGame extends SharedGame {
  * and everyone is in the mood for beats one six people own and nobody fancies.
  * Owner count still breaks ties, and both are aggregates.
  */
+export interface SuggestionPage {
+  games: SuggestedGame[];
+  page: number;
+  totalPages: number;
+  total: number;
+}
+
+/**
+ * One page of suggestions.
+ *
+ * Paged rather than truncated because a group with a big shared library has a
+ * long tail worth browsing - the top five are the best fit for the stated mood,
+ * but "show me more" is a reasonable thing to want and cheap to serve from an
+ * already-computed list.
+ */
+export async function suggestGamesPage(
+  ctx: AppContext,
+  params: {
+    groupId: GroupId;
+    weekStartDate: IsoDate;
+    page?: number;
+    pageSize?: number;
+    multiplayerOnly?: boolean;
+  },
+): Promise<SuggestionPage> {
+  const pageSize = params.pageSize ?? GAMES_PAGE_SIZE;
+  const all = await suggestGames(ctx, {
+    groupId: params.groupId,
+    weekStartDate: params.weekStartDate,
+    limit: Number.MAX_SAFE_INTEGER,
+    ...(params.multiplayerOnly === undefined ? {} : { multiplayerOnly: params.multiplayerOnly }),
+  });
+
+  const totalPages = Math.max(1, Math.ceil(all.length / pageSize));
+  const page = Math.min(Math.max(params.page ?? 0, 0), totalPages - 1);
+
+  return {
+    games: all.slice(page * pageSize, page * pageSize + pageSize),
+    page,
+    totalPages,
+    total: all.length,
+  };
+}
+
 export async function suggestGames(
   ctx: AppContext,
   params: {
@@ -94,6 +139,90 @@ export interface GameOption {
   votes: number;
   /** Whether the viewing member has voted for this option. Self-scoped. */
   votedByMe: boolean;
+  /** From the shared metadata cache, so the shortlist shows what it costs. */
+  priceCents: number | null;
+  currency: string | null;
+  storeUrl: string | null;
+}
+
+export interface ResolvedGame {
+  name: string;
+  appId: number | null;
+  priceCents: number | null;
+  currency: string | null;
+  storeUrl: string | null;
+}
+
+/**
+ * Turns whatever someone typed into a real Steam game with a real price.
+ *
+ * Tries the group's shared library first, since that is both cheaper and more
+ * likely to be what they meant. Falls back to the Steam store, which is what
+ * makes nominating something NOBODY owns useful: the group immediately sees
+ * what it would cost them, in their own currency.
+ *
+ * Returns the raw name unresolved rather than failing if Steam has nothing -
+ * "we could play the new one when it's out" is a legitimate nomination.
+ */
+export async function resolveNomination(
+  ctx: AppContext,
+  params: { groupId: GroupId; weekStartDate: IsoDate; countryCode: string; query: string },
+): Promise<ResolvedGame> {
+  const query = params.query.trim();
+
+  const owned = await searchSharedGames(ctx, {
+    groupId: params.groupId,
+    weekStartDate: params.weekStartDate,
+    query,
+    limit: 5,
+  });
+  const exactOwned = owned.find((game) => game.name.toLowerCase() === query.toLowerCase());
+  if (exactOwned) {
+    return {
+      name: exactOwned.name,
+      appId: exactOwned.appId,
+      priceCents: exactOwned.priceCents,
+      currency: exactOwned.currency,
+      storeUrl: exactOwned.storeUrl,
+    };
+  }
+
+  try {
+    const results = await searchStore({
+      term: query,
+      countryCode: params.countryCode,
+      limit: 5,
+    });
+    const best =
+      results.find((game) => game.name.toLowerCase() === query.toLowerCase()) ?? results[0];
+
+    if (best) {
+      // Cache what we learned, so the next person asking costs nothing.
+      await steam.upsertAppMeta(ctx.db, {
+        appId: best.appId,
+        name: best.name,
+        categories: [],
+        genres: [],
+        multiplayer: false,
+        priceCents: best.priceCents,
+        currency: best.currency,
+        storeUrl: best.storeUrl,
+      });
+
+      return {
+        name: best.name,
+        appId: best.appId,
+        priceCents: best.priceCents,
+        currency: best.currency,
+        storeUrl: best.storeUrl,
+      };
+    }
+  } catch (error) {
+    // A nomination should never fail because Steam is having a moment.
+    ctx.logger.warn('store search failed, nominating unresolved', { query, error });
+  }
+
+  return { name: query, appId: null, priceCents: null, currency: null, storeUrl: null };
 }
 
 export async function nominateGame(

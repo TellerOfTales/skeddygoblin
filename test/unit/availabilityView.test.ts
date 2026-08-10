@@ -268,7 +268,7 @@ describe('terminal views', () => {
       capacity: 2,
       slotCount: 6,
       dayCount: 3,
-      vibes: ['chill'],
+      vibes: ['Casual'],
     });
     expect(view.components).toEqual([]);
     expect(view.content).toMatch(/never your individual picks/);

@@ -7,7 +7,12 @@ import {
 import type { AppContext } from '../../services/context.js';
 import { resolveActor } from '../../services/membershipService.js';
 import { currentWeek } from '../../services/responseService.js';
-import { listGameOptions, nominateGame, searchSharedGames } from '../../services/gameService.js';
+import {
+  listGameOptions,
+  nominateGame,
+  resolveNomination,
+  searchSharedGames,
+} from '../../services/gameService.js';
 import { listOpenProposals, requireProposal } from '../../services/sessionService.js';
 import { gameVoteView } from '../views/games.view.js';
 
@@ -103,20 +108,20 @@ export async function execute(
     return;
   }
 
-  // Match the nomination back to a known app where possible, so the vote can
-  // carry a store link and price.
-  const candidates = await searchSharedGames(ctx, {
+  // Resolve against the shared library first, then the Steam store - so
+  // nominating something nobody owns still shows the group what it would cost
+  // them, in their own currency.
+  const resolved = await resolveNomination(ctx, {
     groupId: actor.group.id,
     weekStartDate: week,
+    countryCode: actor.group.countryCode,
     query: gameName,
-    limit: 5,
   });
-  const matched = candidates.find((game) => game.name.toLowerCase() === gameName.toLowerCase());
 
   await nominateGame(ctx, {
     proposalId: proposal.id,
-    gameName: matched?.name ?? gameName,
-    appId: matched?.appId ?? null,
+    gameName: resolved.name,
+    appId: resolved.appId,
     nominatedBy: actor.user.id,
   });
 

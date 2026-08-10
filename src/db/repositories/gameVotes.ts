@@ -93,6 +93,9 @@ export async function listOptionsAggregate(
     gameName: string;
     votes: number;
     votedByMe: boolean;
+    priceCents: number | null;
+    currency: string | null;
+    storeUrl: string | null;
   }>
 > {
   const result = await db.query<{
@@ -101,17 +104,24 @@ export async function listOptionsAggregate(
     game_name: string;
     votes: number;
     voted_by_me: boolean;
+    price_cents: number | null;
+    currency: string | null;
+    store_url: string | null;
   }>(
     `SELECT
        v.id,
        v.app_id,
        v.game_name,
        COUNT(c.user_id)::bigint AS votes,
-       bool_or(c.user_id = $2) IS TRUE AS voted_by_me
+       bool_or(c.user_id = $2) IS TRUE AS voted_by_me,
+       m.price_cents,
+       m.currency,
+       m.store_url
      FROM game_vote v
      LEFT JOIN game_vote_cast c ON c.vote_id = v.id
+     LEFT JOIN steam_app_meta m ON m.app_id = v.app_id
      WHERE v.proposal_id = $1
-     GROUP BY v.id, v.app_id, v.game_name
+     GROUP BY v.id, v.app_id, v.game_name, m.price_cents, m.currency, m.store_url
      ORDER BY votes DESC, v.game_name ASC`,
     [proposalId, selfUserId],
   );
@@ -122,5 +132,8 @@ export async function listOptionsAggregate(
     gameName: row.game_name,
     votes: row.votes,
     votedByMe: row.voted_by_me,
+    priceCents: row.price_cents,
+    currency: row.currency,
+    storeUrl: row.store_url,
   }));
 }

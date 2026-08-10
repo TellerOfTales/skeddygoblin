@@ -2,7 +2,7 @@ import { MessageFlags, SlashCommandBuilder, type ChatInputCommandInteraction } f
 import type { AppContext } from '../../services/context.js';
 import { resolveActor } from '../../services/membershipService.js';
 import { currentWeek } from '../../services/responseService.js';
-import { suggestGames } from '../../services/gameService.js';
+import { suggestGamesPage } from '../../services/gameService.js';
 import { steamEnabled } from '../../services/steamService.js';
 import { gameSuggestionsView } from '../views/games.view.js';
 
@@ -41,11 +41,22 @@ export async function execute(
     guildName: interaction.guild?.name ?? 'this server',
   });
 
-  const suggestions = await suggestGames(ctx, {
+  const multiplayerOnly = !(interaction.options.getBoolean('include_solo') ?? false);
+  const page = await suggestGamesPage(ctx, {
     groupId: actor.group.id,
     weekStartDate: currentWeek(ctx, actor.group.timezone),
-    multiplayerOnly: !(interaction.options.getBoolean('include_solo') ?? false),
+    multiplayerOnly,
   });
 
-  await interaction.editReply(gameSuggestionsView({ groupName: actor.group.name, suggestions }));
+  await interaction.editReply(
+    gameSuggestionsView({
+      groupId: actor.group.id,
+      groupName: actor.group.name,
+      suggestions: page.games,
+      page: page.page,
+      totalPages: page.totalPages,
+      total: page.total,
+      multiplayerOnly,
+    }),
+  );
 }

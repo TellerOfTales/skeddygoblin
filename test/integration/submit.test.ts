@@ -48,7 +48,7 @@ describe('submit', () => {
           { dayOfWeek: 0, window: 'evening' },
           { dayOfWeek: 2, window: 'night' },
         ],
-        vibes: ['chill', 'co_op_story'],
+        vibes: ['Casual', 'Co-op'],
         draftId,
       });
 
@@ -66,7 +66,7 @@ describe('submit', () => {
         { dayOfWeek: 0, window: 'evening' },
         { dayOfWeek: 2, window: 'night' },
       ]);
-      expect(stored.vibes).toEqual(['chill', 'co_op_story']);
+      expect(stored.vibes).toEqual(['Casual', 'Co-op']);
 
       expect(await drafts.findDraftById(ctx.db, draftId)).toBeNull();
     });
@@ -85,7 +85,7 @@ describe('submit', () => {
           { dayOfWeek: 0, window: 'morning' },
           { dayOfWeek: 1, window: 'lunch' },
         ],
-        vibes: ['sweaty'],
+        vibes: ['Action'],
       });
 
       await submit(ctx, {
@@ -93,13 +93,13 @@ describe('submit', () => {
         ...scope,
         sessionsCommitted: 1,
         slots: [{ dayOfWeek: 5, window: 'late_night' }],
-        vibes: ['chaos'],
+        vibes: ['Action'],
       });
 
       const stored = await getOwnSubmission(ctx, { userId: user.id, ...scope });
       expect(stored.response?.sessionsCommitted).toBe(1);
       expect(stored.slots).toEqual([{ dayOfWeek: 5, window: 'late_night' }]);
-      expect(stored.vibes).toEqual(['chaos']);
+      expect(stored.vibes).toEqual(['Action']);
     });
   });
 
@@ -234,7 +234,7 @@ describe('draft to submission', () => {
       draft = await draftService.setWindowsForDay(ctx, draft, 2, ['lunch']);
       // Day 1 deliberately left empty - "leave a day empty to skip it".
       draft = await draftService.setCapacity(ctx, draft, 3);
-      draft = await draftService.setVibes(ctx, draft, ['chill']);
+      draft = await draftService.setVibes(ctx, draft, ['Casual']);
 
       const slots = draftService.toSlotRows(draft.state);
       expect(slots).toEqual([
@@ -269,11 +269,11 @@ describe('draft to submission', () => {
       const draft = (await drafts.findDraftById(ctx.db, draftId))!;
 
       const updated = await draftService.setVibes(ctx, draft, [
-        'chill',
-        'chaos',
-        'sweaty',
-        'competitive',
-        'low_mic',
+        'Casual',
+        'Action',
+        'Action',
+        'Online PvP',
+        'Simulation',
       ]);
 
       expect(draftService.chosenVibes(updated.state)).toHaveLength(3);
@@ -285,8 +285,8 @@ describe('draft to submission', () => {
       const { draftId } = await seed(ctx);
       const draft = (await drafts.findDraftById(ctx.db, draftId))!;
 
-      const updated = await draftService.setVibes(ctx, draft, ['chill', 'vibes' as never]);
-      expect(draftService.chosenVibes(updated.state)).toEqual(['chill']);
+      const updated = await draftService.setVibes(ctx, draft, ['Casual', 'vibes' as never]);
+      expect(draftService.chosenVibes(updated.state)).toEqual(['Casual']);
     });
   });
 });
@@ -307,7 +307,7 @@ describe('vibe aggregation', () => {
           ...scope,
           sessionsCommitted: 2,
           slots: [{ dayOfWeek: 0, window: 'evening' }],
-          vibes: ['chill'],
+          vibes: ['Casual'],
         });
       }
       // c opts out, so contributes nothing.
@@ -315,7 +315,7 @@ describe('vibe aggregation', () => {
 
       const counts = await vibesRepo.countVibesAggregate(ctx.db, scope);
 
-      expect(counts).toEqual([{ tag: 'chill', count: 2 }]);
+      expect(counts).toEqual([{ tag: 'Casual', count: 2 }]);
       expect(JSON.stringify(counts)).not.toContain(String(a.id));
     });
   });

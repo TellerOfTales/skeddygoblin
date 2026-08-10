@@ -12,21 +12,30 @@ import {
   EmbedBuilder,
   type BaseMessageOptions,
 } from 'discord.js';
-import { DAY_LABELS, WINDOW_LABELS, type Day, type Window } from '../../domain/constants.js';
+import {
+  DAY_LABELS,
+  GAMES_PAGE_SIZE,
+  WINDOW_LABELS,
+  type Day,
+  type Window,
+} from '../../domain/constants.js';
+import { formatPrice } from '../../domain/gameMatching.js';
 import { encodeCustomId, toBase36 } from '../customId.js';
-import type { GameOption } from '../../services/gameService.js';
-import type { SuggestedGame } from '../../services/gameService.js';
+import type { GameOption, SuggestedGame } from '../../services/gameService.js';
 
-function price(game: SuggestedGame): string {
-  if (game.priceCents === null) return '';
-  if (game.priceCents === 0) return ' · free';
-  const amount = (game.priceCents / 100).toFixed(2);
-  return ` · ${amount} ${game.currency ?? ''}`.trimEnd();
+function price(game: { priceCents: number | null; currency: string | null }): string {
+  const formatted = formatPrice(game.priceCents, game.currency);
+  return formatted === null ? '' : ` · ${formatted}`;
 }
 
 export function gameSuggestionsView(params: {
+  groupId: number;
   groupName: string;
   suggestions: SuggestedGame[];
+  page: number;
+  totalPages: number;
+  total: number;
+  multiplayerOnly: boolean;
 }): BaseMessageOptions {
   const embed = new EmbedBuilder().setTitle('Games you could actually all play').setColor(0x1b2838);
 
@@ -41,17 +50,47 @@ export function gameSuggestionsView(params: {
     return { embeds: [embed] };
   }
 
+  const offset = params.page * GAMES_PAGE_SIZE;
   embed.setDescription(
     params.suggestions
-      .map((game) => {
+      .map((game, index) => {
         const link = game.storeUrl ? `[${game.name}](${game.storeUrl})` : `**${game.name}**`;
-        return `${link} — ${game.ownerCount} of you own it${price(game)}`;
+        return `\`${offset + index + 1}\` ${link} — ${game.ownerCount} of you own it${price(game)}`;
       })
       .join('\n'),
   );
-  embed.setFooter({ text: 'matched to this week’s vibe · owner counts only, never who' });
+  embed.setFooter({
+    text:
+      `${params.total} shared ${params.total === 1 ? 'game' : 'games'}` +
+      (params.totalPages > 1 ? ` · page ${params.page + 1} of ${params.totalPages}` : '') +
+      ' · matched to this week’s vibe · owner counts only, never who',
+  });
 
-  return { embeds: [embed] };
+  const message: BaseMessageOptions = { embeds: [embed] };
+
+  if (params.totalPages > 1) {
+    const solo = params.multiplayerOnly ? '0' : '1';
+    message.components = [
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(
+            encodeCustomId('gv', 'page', toBase36(params.groupId), String(params.page - 1), solo),
+          )
+          .setLabel('◀ Back')
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(params.page === 0),
+        new ButtonBuilder()
+          .setCustomId(
+            encodeCustomId('gv', 'page', toBase36(params.groupId), String(params.page + 1), solo),
+          )
+          .setLabel('Next ▶')
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(params.page >= params.totalPages - 1),
+      ),
+    ];
+  }
+
+  return message;
 }
 
 export function gameVoteView(params: {
@@ -72,9 +111,11 @@ export function gameVoteView(params: {
       : params.options
           .map(
             (option) =>
-              `${option.votedByMe ? '✅' : '▫️'} **${option.gameName}** — ${option.votes} ${
-                option.votes === 1 ? 'vote' : 'votes'
-              }`,
+              `${option.votedByMe ? '✅' : '▫️'} ${
+                option.storeUrl
+                  ? `[${option.gameName}](${option.storeUrl})`
+                  : `**${option.gameName}**`
+              } — ${option.votes} ${option.votes === 1 ? 'vote' : 'votes'}${price(option)}`,
           )
           .join('\n'),
   );

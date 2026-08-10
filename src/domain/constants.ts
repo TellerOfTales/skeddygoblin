@@ -122,44 +122,50 @@ export function isCapacity(value: unknown): value is Capacity {
 // ---------------------------------------------------------------------------
 
 /**
- * Curated, deliberately small. The brief calls for 6-8 options; adding more
- * costs weekly-flow seconds for every member, every week.
+ * A vibe IS a Steam term.
  *
- * Mirrored by a CHECK constraint on vibe_tag.tag, so changing this list means a
- * one-line migration.
+ * Every value here is an exact string from Steam's own `genres` or
+ * `categories` lists, so matching a game to a mood is plain membership rather
+ * than a hand-written mapping. See src/domain/gameMatching.ts for why Steam's
+ * USER tags ("Relaxing", "Story Rich") are deliberately not used - the official
+ * appdetails endpoint does not return them.
+ *
+ * Mirrored by a CHECK constraint on vibe_tag.tag (migration 0003), so changing
+ * this list means a one-line migration.
  */
 export const VIBE_TAGS = [
-  'chill',
-  'competitive',
-  'co_op_story',
-  'chaos',
-  'sweaty',
-  'something_new',
-  'old_favorite',
-  'low_mic',
+  'Co-op',
+  'Online PvP',
+  'Casual',
+  'Action',
+  'Strategy',
+  'RPG',
+  'Simulation',
+  'Racing',
 ] as const;
 export type VibeTag = (typeof VIBE_TAGS)[number];
 
+/** Plain-English labels. The stored value stays the exact Steam term. */
 export const VIBE_LABELS: Record<VibeTag, string> = {
-  chill: 'Chill',
-  competitive: 'Competitive',
-  co_op_story: 'Co-op story',
-  chaos: 'Chaos',
-  sweaty: 'Sweaty',
-  something_new: 'Something new',
-  old_favorite: 'Old favourite',
-  low_mic: 'Low mic / quiet',
+  'Co-op': 'Co-op',
+  'Online PvP': 'Versus',
+  Casual: 'Casual',
+  Action: 'Action',
+  Strategy: 'Strategy',
+  RPG: 'RPG',
+  Simulation: 'Simulation',
+  Racing: 'Racing',
 };
 
 export const VIBE_DESCRIPTIONS: Record<VibeTag, string> = {
-  chill: 'Low stakes, easy to drop in and out of',
-  competitive: 'Ranked, PvP, actually trying',
-  co_op_story: 'Play through something together',
-  chaos: 'Party games, dumb fun, chaos',
-  sweaty: 'High effort, high focus',
-  something_new: 'Try a game none of us have played',
-  old_favorite: 'Comfort pick we already know',
-  low_mic: "Quiet house - I'd rather not talk much",
+  'Co-op': 'Playing through something on the same side',
+  'Online PvP': 'Against each other',
+  Casual: 'Low stakes, easy to drop in and out of',
+  Action: 'Shooters, brawlers, anything twitchy',
+  Strategy: 'Thinking games, base building, tactics',
+  RPG: 'Characters, loot, a long arc',
+  Simulation: 'Farming, building, management',
+  Racing: 'Cars, karts, anything with a finish line',
 };
 
 export function isVibeTag(value: unknown): value is VibeTag {
@@ -206,6 +212,14 @@ export const MIN_AGGREGATE_HEADCOUNT = 2;
 
 /** How many windows the leaderboard shows. */
 export const TOP_WINDOWS = 3;
+
+/**
+ * Games shown per page of /games.
+ *
+ * Five keeps the embed scannable and leaves the button row free for
+ * navigation - the same reasoning as DAYS_PER_PAGE, a step earlier.
+ */
+export const GAMES_PAGE_SIZE = 5;
 
 // ---------------------------------------------------------------------------
 // Weekly cycle defaults

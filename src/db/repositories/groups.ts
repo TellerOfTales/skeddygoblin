@@ -7,6 +7,7 @@ interface GroupRow {
   discord_guild_id: string;
   name: string;
   timezone: string;
+  country_code: string;
   announce_channel_id: string | null;
   nudge_cutoff_day: number;
   nudge_cutoff_time: string;
@@ -18,6 +19,7 @@ function toRecord(row: GroupRow): GroupRecord {
     discordGuildId: row.discord_guild_id,
     name: row.name,
     timezone: row.timezone,
+    countryCode: row.country_code,
     announceChannelId: row.announce_channel_id,
     nudgeCutoffDay: row.nudge_cutoff_day as Day,
     nudgeCutoffTime: row.nudge_cutoff_time,
@@ -25,7 +27,7 @@ function toRecord(row: GroupRow): GroupRecord {
 }
 
 const COLUMNS =
-  'id, discord_guild_id, name, timezone, announce_channel_id, nudge_cutoff_day, nudge_cutoff_time';
+  'id, discord_guild_id, name, timezone, country_code, announce_channel_id, nudge_cutoff_day, nudge_cutoff_time';
 
 export async function ensureGroup(
   db: Queryable,
@@ -70,6 +72,7 @@ export async function updateGroupSettings(
   id: GroupId,
   settings: {
     timezone?: string;
+    countryCode?: string;
     announceChannelId?: string | null;
     nudgeCutoffDay?: Day;
     nudgeCutoffTime?: string;
@@ -81,6 +84,7 @@ export async function updateGroupSettings(
        announce_channel_id = COALESCE($3, announce_channel_id),
        nudge_cutoff_day    = COALESCE($4, nudge_cutoff_day),
        nudge_cutoff_time   = COALESCE($5, nudge_cutoff_time),
+       country_code        = COALESCE($6, country_code),
        updated_at          = now()
      WHERE id = $1
      RETURNING ${COLUMNS}`,
@@ -90,6 +94,7 @@ export async function updateGroupSettings(
       settings.announceChannelId ?? null,
       settings.nudgeCutoffDay ?? null,
       settings.nudgeCutoffTime ?? null,
+      settings.countryCode ?? null,
     ],
   );
   return toRecord(result.rows[0]!);

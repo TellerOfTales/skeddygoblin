@@ -3,9 +3,15 @@ import { buildAuthUrl, verifyCallback } from '../../src/steam/openid.js';
 import {
   fetchAppMeta,
   fetchOwnedGames,
+  searchStore,
   SteamProfilePrivateError,
 } from '../../src/steam/clients.js';
-import { isMultiplayer, matchesVibe, vibeScore } from '../../src/domain/gameMatching.js';
+import {
+  formatPrice,
+  isMultiplayer,
+  matchesVibe,
+  vibeScore,
+} from '../../src/domain/gameMatching.js';
 import { renderSms, resolveSmsReply } from '../../src/notify/TwilioSMSNotifier.js';
 import * as templates from '../../src/notify/templates.js';
 
@@ -180,35 +186,123 @@ describe('vibe matching', () => {
     expect(isMultiplayer(['Single-player', 'Steam Cloud'])).toBe(false);
   });
 
-  it('matches games to a vibe', () => {
+  /** A vibe is a Steam term, so matching is membership rather than a mapping. */
+  it('matches a game that literally carries the tag', () => {
     const shooter = { genres: ['Action'], categories: ['Online PvP'] };
-    const cosy = { genres: ['Casual', 'Simulation'], categories: ['Online Co-op'] };
+    const farm = { genres: ['Simulation', 'Casual'], categories: ['Online Co-op'] };
 
-    expect(matchesVibe(shooter, 'competitive')).toBe(true);
-    expect(matchesVibe(cosy, 'chill')).toBe(true);
-    expect(matchesVibe(shooter, 'chill')).toBe(false);
+    expect(matchesVibe(shooter, 'Action')).toBe(true);
+    expect(matchesVibe(shooter, 'Online PvP')).toBe(true);
+    expect(matchesVibe(farm, 'Simulation')).toBe(true);
+
+    expect(matchesVibe(shooter, 'Simulation')).toBe(false);
+    expect(matchesVibe(farm, 'Online PvP')).toBe(false);
   });
 
-  it('treats mood-only vibes as matching everything', () => {
-    const anything = { genres: ['Strategy'], categories: [] };
-    expect(matchesVibe(anything, 'something_new')).toBe(true);
-    expect(matchesVibe(anything, 'old_favorite')).toBe(true);
+  /**
+   * Steam's own categories nest: a game tagged only "Online Co-op" is plainly
+   * Co-op. Those broadenings are listed explicitly rather than inferred.
+   */
+  it('accepts the narrower Steam categories that imply a vibe', () => {
+    expect(matchesVibe({ genres: [], categories: ['Online Co-op'] }, 'Co-op')).toBe(true);
+    expect(matchesVibe({ genres: [], categories: ['LAN PvP'] }, 'Online PvP')).toBe(true);
+    // ...but not in the other direction: Co-op does not imply versus.
+    expect(matchesVibe({ genres: [], categories: ['Co-op'] }, 'Online PvP')).toBe(false);
   });
 
   it('weights the fit by how many people picked each vibe', () => {
     const shooter = { genres: ['Action'], categories: ['Online PvP'] };
 
-    // Three of four vibe picks are competitive.
-    const fit = vibeScore(shooter, [
-      { tag: 'competitive', count: 3 },
-      { tag: 'chill', count: 1 },
-    ]);
-    expect(fit).toBeCloseTo(0.75, 5);
+    // Three of four vibe picks are ones this game carries.
+    expect(
+      vibeScore(shooter, [
+        { tag: 'Online PvP', count: 3 },
+        { tag: 'Simulation', count: 1 },
+      ]),
+    ).toBeCloseTo(0.75, 5);
 
     // Nobody is in the mood for it.
-    expect(vibeScore(shooter, [{ tag: 'chill', count: 2 }])).toBe(0);
+    expect(vibeScore(shooter, [{ tag: 'Simulation', count: 2 }])).toBe(0);
     // No vibes recorded means no opinion, not no match.
     expect(vibeScore(shooter, [])).toBe(1);
+  });
+});
+
+describe('price formatting', () => {
+  it('renders in the storefront currency, symbol and all', () => {
+    expect(formatPrice(1499, 'GBP')).toBe('£14.99');
+    expect(formatPrice(1499, 'USD')).toBe('US$14.99');
+    expect(formatPrice(1499, 'EUR')).toBe('€14.99');
+  });
+
+  /**
+   * Steam reports every currency with two implied decimals, including ones that
+   * have no minor unit at all - a 2,970 yen game comes back as 297000, not
+   * 2970. So dividing by 100 is right universally, and Intl then drops the
+   * decimals that yen does not use.
+   */
+  it('handles a zero-decimal currency without inventing fractions of a yen', () => {
+    const formatted = formatPrice(297_000, 'JPY');
+    expect(formatted).toContain('2,970');
+    expect(formatted).not.toContain('.');
+  });
+
+  it('distinguishes free from unknown', () => {
+    expect(formatPrice(0, 'GBP')).toBe('Free');
+    // Unreleased or unpriced: "we do not know" is not "it costs nothing".
+    expect(formatPrice(null, 'GBP')).toBeNull();
+  });
+
+  it('degrades rather than throwing on a currency Intl rejects', () => {
+    expect(formatPrice(500, 'NOTACURRENCY')).toBe('5.00 NOTACURRENCY');
+  });
+});
+
+describe('store search', () => {
+  const respond = (body: unknown) =>
+    (async () => new Response(JSON.stringify(body))) as unknown as typeof fetch;
+
+  it('asks the group storefront so the price is in their currency', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ items: [] })));
+
+    await searchStore({ term: 'hades', countryCode: 'GB' }, fetchImpl as unknown as typeof fetch);
+
+    const [url] = fetchImpl.mock.calls[0] as unknown as [string];
+    expect(new URL(url).searchParams.get('cc')).toBe('GB');
+    expect(new URL(url).searchParams.get('term')).toBe('hades');
+  });
+
+  it('maps results with price and store link', async () => {
+    const results = await searchStore(
+      { term: 'hades', countryCode: 'GB' },
+      respond({
+        items: [{ id: 1145360, name: 'Hades', price: { currency: 'GBP', final: 1699 } }],
+      }),
+    );
+
+    expect(results).toEqual([
+      {
+        appId: 1145360,
+        name: 'Hades',
+        priceCents: 1699,
+        currency: 'GBP',
+        storeUrl: 'https://store.steampowered.com/app/1145360',
+      },
+    ]);
+  });
+
+  it('reports a missing price as unknown rather than free', async () => {
+    const [result] = await searchStore(
+      { term: 'unreleased', countryCode: 'GB' },
+      respond({ items: [{ id: 99, name: 'Unreleased Thing' }] }),
+    );
+    expect(result?.priceCents).toBeNull();
+  });
+
+  it('does not call Steam for an empty search', async () => {
+    const fetchImpl = vi.fn();
+    expect(await searchStore({ term: '  ', countryCode: 'GB' }, fetchImpl as never)).toEqual([]);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
 

@@ -130,3 +130,69 @@ export const STORE_REQUEST_DELAY_MS = 1_500;
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+// ---------------------------------------------------------------------------
+// Store search - for games nobody in the group owns yet
+// ---------------------------------------------------------------------------
+
+export interface StoreSearchResult {
+  appId: number;
+  name: string;
+  priceCents: number | null;
+  currency: string | null;
+  storeUrl: string;
+}
+
+interface StoreSearchResponse {
+  total?: number;
+  items?: Array<{
+    id?: number;
+    name?: string;
+    price?: { currency?: string; initial?: number; final?: number };
+  }>;
+}
+
+/**
+ * Searches the Steam store by name, in a given storefront.
+ *
+ * This is what makes a free-text /propose useful: someone nominates a game
+ * nobody owns yet, and the group immediately sees what it would cost THEM. The
+ * `cc` parameter is why prices come back in the group's own currency rather
+ * than dollars - Steam prices regionally, so a UK group asking for a US price
+ * would get a misleading number.
+ *
+ * A game with no `price` object is free-to-play or unreleased; that is reported
+ * as a null price rather than zero, because "we do not know" and "it costs
+ * nothing" are different answers.
+ */
+export async function searchStore(
+  params: { term: string; countryCode: string; limit?: number },
+  fetchImpl: typeof fetch = fetch,
+): Promise<StoreSearchResult[]> {
+  const term = params.term.trim();
+  if (term.length === 0) return [];
+
+  const url = new URL('https://store.steampowered.com/api/storesearch/');
+  url.searchParams.set('term', term);
+  url.searchParams.set('cc', params.countryCode);
+  url.searchParams.set('l', 'english');
+
+  const response = await fetchImpl(url.toString());
+  if (!response.ok) throw new Error(`storesearch returned ${response.status}`);
+
+  const body = (await response.json()) as StoreSearchResponse;
+
+  return (body.items ?? [])
+    .filter(
+      (item): item is { id: number; name: string; price?: { currency?: string; final?: number } } =>
+        typeof item.id === 'number' && typeof item.name === 'string',
+    )
+    .slice(0, params.limit ?? 10)
+    .map((item) => ({
+      appId: item.id,
+      name: item.name,
+      priceCents: typeof item.price?.final === 'number' ? item.price.final : null,
+      currency: item.price?.currency ?? null,
+      storeUrl: `https://store.steampowered.com/app/${item.id}`,
+    }));
+}
