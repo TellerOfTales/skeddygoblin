@@ -1,3 +1,5 @@
+<img src="assets/logo/banner.png" alt="Skeddy Goblin" width="420">
+
 # Skeddy Goblin
 
 Skeddy Goblin coordinates gaming sessions for busy people. Answer a few quick questions about
@@ -174,6 +176,20 @@ there. The development toolchain needs **Node 20+**, because vitest does.
 | `npm test`         | Unit + integration suites                           |
 | `npm run lint`     | ESLint, including the layer and notifier boundaries |
 | `npm run db:up`    | Start a local Postgres cluster without Docker       |
+| `npm run logo`     | Redraw the logo assets from the sprite source       |
+
+## Logo
+
+The mark is a 32×32 pixel sprite, so it is source rather than a binary someone has to open an
+editor to change: the grid lives in [`scripts/make-logo.mjs`](scripts/make-logo.mjs) as labelled
+row spans, and `npm run logo` regenerates everything in `assets/logo/`. There are no image
+dependencies — the script writes the PNGs itself with `node:zlib`.
+
+| File                       | Use                                                       |
+| -------------------------- | --------------------------------------------------------- |
+| `mark.svg`                 | The mark, one rect per pixel run — crisp at any size      |
+| `mark-32/128/256/512.png`  | Nearest-neighbour upscales; 512 is the Discord bot avatar |
+| `banner.svg`, `banner.png` | Mark plus wordmark on the dark background                 |
 
 ## Slash commands
 

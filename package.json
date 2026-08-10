@@ -21,6 +21,7 @@
     "test:unit": "vitest run test/unit",
     "test:watch": "vitest",
     "walkthrough": "vitest run test/integration/walkthrough.test.ts --reporter=verbose",
+    "logo": "node scripts/make-logo.mjs",
     "db:up": "bash scripts/dev-pg.sh up",
     "db:down": "bash scripts/dev-pg.sh down"
   },

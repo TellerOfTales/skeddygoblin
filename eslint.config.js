@@ -123,6 +123,16 @@ export default tseslint.config(
     },
   },
 
+  // Plain-JS build scripts (scripts/make-logo.mjs) run on bare Node, outside the
+  // TypeScript program, so they need Node's globals declared and stdout allowed.
+  {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: { Buffer: 'readonly', console: 'readonly', process: 'readonly' },
+    },
+    rules: { 'no-console': 'off' },
+  },
+
   // Boot, migrations and the command registrar legitimately write to stdout.
   {
     files: ['src/index.ts', 'src/logger.ts', 'src/config.ts', 'src/db/migrate.ts'],
