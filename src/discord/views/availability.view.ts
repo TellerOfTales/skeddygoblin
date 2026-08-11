@@ -234,18 +234,35 @@ export function noWindowsChosenView(params: {
   return view;
 }
 
+/**
+ * The escape hatch's landing screen.
+ *
+ * It carries exactly one button, and that is the point: opting out used to
+ * strip every component and tell people to run `/availability` again - a
+ * command that could not be run from the DM they were sitting in. There was
+ * genuinely no way back. One tap has to be reversible by one tap.
+ *
+ * Deliberately Secondary and deliberately alone: no guilt copy, no second ask,
+ * nothing that reads as trying to talk them out of it.
+ */
 export function optedOutView(params: {
+  groupId: number;
   groupName: string;
   weekStartDate: IsoDate;
 }): InteractionUpdateOptions {
+  const reopen = new ButtonBuilder()
+    .setCustomId(encodeCustomId('av', 'in', toBase36(params.groupId)))
+    .setLabel("Actually, I'm in")
+    .setStyle(ButtonStyle.Secondary);
+
   return {
     content: [
       `**Noted — you're out for the week of ${formatWeekLabel(params.weekStartDate)}.**`,
       '',
       `Nobody will nudge you about ${params.groupName} again until next week.`,
-      'Changed your mind? `/availability` reopens it any time.',
+      'Changed your mind? The button below reopens it.',
     ].join('\n'),
-    components: [],
+    components: [new ActionRowBuilder<ButtonBuilder>().addComponents(reopen)],
   };
 }
 

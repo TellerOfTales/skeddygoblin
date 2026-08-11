@@ -211,9 +211,21 @@ describe('terminal views', () => {
     expect(view.content).toMatch(/never your individual picks/);
   });
 
-  it('the opted-out view strips all components, so the flow is visibly over', () => {
-    const view = optedOutView({ groupName: 'The Basement', weekStartDate: '2026-08-10' });
-    expect(view.components).toEqual([]);
+  it('the opted-out view offers exactly one way back and no guilt', () => {
+    const view = optedOutView({
+      groupId: 7,
+      groupName: 'The Basement',
+      weekStartDate: '2026-08-10',
+    });
+
+    // Exactly one button. Opting out inside a DM used to strip every component
+    // and point at a slash command that could not be run from there, which left
+    // people with no way back in at all.
+    const [row, ...rest] = rows(view);
+    expect(rest).toHaveLength(0);
+    expect(row!.components).toHaveLength(1);
+    expect(row!.components[0]!.label).toBe("Actually, I'm in");
+
     // No guilt copy, no "are you sure".
     expect(view.content).not.toMatch(/sure|really|sorry|miss/i);
   });

@@ -125,8 +125,11 @@ async function handleOptOut(
   await interaction.deferUpdate();
   await optOut(ctx, { userId: actor.user.id, groupId, weekStartDate: week });
 
-  // One tap, no follow-up questions, components stripped so it is visibly over.
-  await interaction.editReply(optedOutView({ groupName: actor.group.name, weekStartDate: week }));
+  // One tap, no follow-up questions. The single remaining button is the way
+  // back in - without it, opting out in a DM is a dead end.
+  await interaction.editReply(
+    optedOutView({ groupId, groupName: actor.group.name, weekStartDate: week }),
+  );
 }
 
 async function handleOptIn(
