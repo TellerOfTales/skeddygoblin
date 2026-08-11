@@ -154,15 +154,30 @@ export async function claimCutoffPost(
  * Claims the weekly library re-sync. Once per group per week is plenty:
  * libraries change slowly, and GetOwnedGames is one call per linked member.
  */
+/**
+ * Claims the library re-sync for one DAY, not one week.
+ *
+ * Libraries go stale the moment somebody buys something, and a week-old view of
+ * what the group owns quietly produces a worse suggestion list every day until
+ * Monday. Daily is cheap: GetOwnedGames is a single call per linked member, and
+ * a friend group is a handful of calls - nothing like the Store metadata
+ * endpoint, which is the rate-limited one and stays on its own slow drip.
+ *
+ * job_run's third column is named week_start_date because every other job is
+ * weekly, but the primary key only cares that it is a DATE - so passing the
+ * group-local day makes the same lock mean "once today" with no schema change.
+ * The date is group-local so "daily" rolls over at the group's midnight rather
+ * than UTC's.
+ */
 export async function claimSteamSync(
   ctx: AppContext,
   group: GroupRecord,
-  week: IsoDate,
+  localDay: IsoDate,
 ): Promise<boolean> {
   return jobRuns.claimJob(ctx.db, {
     groupId: group.id,
     jobKind: 'steam_sync',
-    weekStartDate: week,
+    weekStartDate: localDay,
   });
 }
 

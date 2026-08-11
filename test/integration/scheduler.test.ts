@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { closeTestPool, withRollback } from '../helpers/db.js';
 import { makeGroup, makeGroupWithMembers, makeMember } from '../helpers/fixtures.js';
+import { localDate } from '../../src/domain/week.js';
 import * as drafts from '../../src/db/repositories/drafts.js';
 import * as weeklyResponses from '../../src/db/repositories/weeklyResponses.js';
 import * as availability from '../../src/db/repositories/availability.js';
@@ -13,6 +14,7 @@ import {
   runWeeklyPrompt,
   commitUnfinishedDrafts,
   isEveryoneAnswered,
+  claimSteamSync,
 } from '../../src/services/weeklyCycleService.js';
 import { currentWeek, optOut, submit } from '../../src/services/responseService.js';
 import {
@@ -505,6 +507,40 @@ describe('posting the weekly board early', () => {
       // Whoever claims first posts; the other becomes a silent no-op.
       expect(await claimCutoffPost(ctx, group, week)).toBe(true);
       expect(await claimCutoffPost(ctx, group, week)).toBe(false);
+    });
+  });
+});
+
+/**
+ * Libraries go stale the moment someone buys something, so the re-sync is
+ * daily. job_run's third column is a DATE, so the same primary-key lock means
+ * "once today" simply by being handed a day instead of a week.
+ */
+describe('daily steam library re-sync', () => {
+  it('runs once per day, not once per week', async () => {
+    await withRollback(async (ctx) => {
+      const group = await makeGroup(ctx, { timezone: 'Europe/London' });
+      const today = localDate(ctx.clock.now(), group.timezone);
+
+      expect(await claimSteamSync(ctx, group, today)).toBe(true);
+      // Same day: already done.
+      expect(await claimSteamSync(ctx, group, today)).toBe(false);
+
+      const tomorrow = new Date(`${today}T00:00:00Z`);
+      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+      expect(await claimSteamSync(ctx, group, tomorrow.toISOString().slice(0, 10))).toBe(true);
+    });
+  });
+
+  it("rolls over at the group's own midnight", async () => {
+    await withRollback(async (ctx) => {
+      // Kiritimati is UTC+14: its date is ahead of UTC's for most of the day,
+      // which is exactly where a naive UTC-keyed "daily" would double-run.
+      const group = await makeGroup(ctx, { timezone: 'Pacific/Kiritimati' });
+      const theirToday = localDate(ctx.clock.now(), group.timezone);
+
+      expect(await claimSteamSync(ctx, group, theirToday)).toBe(true);
+      expect(await claimSteamSync(ctx, group, theirToday)).toBe(false);
     });
   });
 });

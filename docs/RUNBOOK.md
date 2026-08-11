@@ -222,6 +222,11 @@ batches, deliberately slowly, because the Steam Store endpoint allows roughly 20
 per 5 minutes and getting blocked is worse than being late. Prices and genres appear as
 that catches up.
 
+Libraries themselves re-sync **daily**, at the group's own midnight, so a game bought on
+Tuesday is in the suggestions by Wednesday. That is a different endpoint —
+`GetOwnedGames`, one call per linked member — so it is cheap even for a large group and
+does not compete with the Store metadata drip above.
+
 ### 2.5 Currency
 
 `/setup country:GB` sets the Steam storefront. It decides both the price _and_ the

@@ -15,6 +15,7 @@
 import { config } from '../config.js';
 import { tryAdvisorySessionLock } from '../db/pool.js';
 import * as groups from '../db/repositories/groups.js';
+import { localDate } from '../domain/week.js';
 import * as drafts from '../db/repositories/drafts.js';
 import { DRAFT_TTL_DAYS } from '../domain/constants.js';
 import { expireStalePendingBuzzes } from '../services/buzzService.js';
@@ -61,9 +62,11 @@ export async function runTick(ctx: AppContext, hooks: SchedulerHooks): Promise<v
         }
       }
 
-      // Libraries go stale as people buy games, so re-sync once a week rather
-      // than trusting whatever they owned on the day they linked.
-      if (steamEnabled() && (await claimSteamSync(ctx, group, week))) {
+      // Libraries go stale as people buy games, so re-sync once a DAY rather
+      // than trusting whatever they owned when they linked. Keyed on the
+      // group-local date, so it rolls over at their midnight.
+      const today = localDate(ctx.clock.now(), group.timezone);
+      if (steamEnabled() && (await claimSteamSync(ctx, group, today))) {
         await syncGroupLibraries(ctx, group.id);
       }
     } catch (error) {
