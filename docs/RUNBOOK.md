@@ -114,7 +114,7 @@ first run.
 | Step | Do                                                            | Expect                                                      |
 | ---- | ------------------------------------------------------------- | ----------------------------------------------------------- |
 | 9    | `/overlap`                                                    | Leaderboard. Slots only one of you can make must NOT appear |
-| 10b  | `/status`                                                     | Both answered, plus leading windows, mood and shared games  |
+| 10   | `/status`                                                     | Both answered, plus leading windows, mood and shared games  |
 | 11   | Third account (or have B not answer) → `/status` → **Buzz 1** | They get a DM; the button greys out                         |
 | 12   | Tap **Buzz 1** again                                          | "They've already been buzzed today"                         |
 | 13   | As organizer, `/overlap` → **Lock in …**                      | RSVP message with Yes/Maybe/No                              |
