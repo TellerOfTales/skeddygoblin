@@ -130,6 +130,9 @@ describe('P2: repository export naming discipline', () => {
    * alongside an identity. Adding to this list is a deliberate act.
    */
   const ALLOWLIST = new Set([
+    // Carries user_id, but only ever to turn each draft into that same user's
+    // own submission at the cutoff. No view can reach it.
+    'listDraftsForWeek',
     // aggregates - counts and scores only
     'rankWindowAggregate',
     'countSubmittedResponders',

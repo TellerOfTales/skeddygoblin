@@ -23,6 +23,7 @@ import type { AppContext } from '../services/context.js';
 import {
   claimCutoffPost,
   claimSteamSync,
+  commitUnfinishedDrafts,
   currentWeekFor,
   isCutoffDue,
   isPromptDue,
@@ -51,6 +52,11 @@ export async function runTick(ctx: AppContext, hooks: SchedulerHooks): Promise<v
       if (isCutoffDue(group, ctx.clock.now())) {
         // Claim first: posting twice is worse than posting late.
         if (await claimCutoffPost(ctx, group, week)) {
+          // Bank unfinished drafts BEFORE computing the board, so someone who
+          // picked their days and never tapped Submit still counts towards the
+          // windows that get chosen. After the post it would be too late to
+          // matter for the very week it describes.
+          await commitUnfinishedDrafts(ctx, group, week);
           await hooks.postCutoff(group, week);
         }
       }

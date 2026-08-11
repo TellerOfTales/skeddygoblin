@@ -1,6 +1,9 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { closeTestPool, withRollback } from '../helpers/db.js';
 import { makeGroup, makeGroupWithMembers, makeMember } from '../helpers/fixtures.js';
+import * as drafts from '../../src/db/repositories/drafts.js';
+import * as weeklyResponses from '../../src/db/repositories/weeklyResponses.js';
+import * as availability from '../../src/db/repositories/availability.js';
 import * as jobRuns from '../../src/db/repositories/jobRuns.js';
 import * as groups from '../../src/db/repositories/groups.js';
 import {
@@ -8,6 +11,7 @@ import {
   isCutoffDue,
   isPromptDue,
   runWeeklyPrompt,
+  commitUnfinishedDrafts,
 } from '../../src/services/weeklyCycleService.js';
 import { currentWeek, optOut, submit } from '../../src/services/responseService.js';
 import {
@@ -345,6 +349,93 @@ describe('one person asking pulls the whole group in', () => {
 
       // Once per week, not once ever.
       expect([first.ran, second.ran]).toEqual([true, true]);
+    });
+  });
+});
+
+/**
+ * Forgetting to tap Submit used to erase the answers entirely: everything lived
+ * in response_draft until the final button, so someone who picked their days
+ * and wandered off was silent as far as the leaderboard was concerned.
+ */
+describe('unfinished drafts are banked at the cutoff', () => {
+  it('turns a half-finished draft into a real response', async () => {
+    await withRollback(async (ctx) => {
+      const { group, members } = await makeGroupWithMembers(ctx, 2);
+      const week = currentWeek(ctx, group.timezone);
+
+      // Picked Wednesday evening, never reached capacity or vibes.
+      const draft = await drafts.startOrResumeDraft(ctx.db, members[0]!.id, {
+        groupId: group.id,
+        weekStartDate: week,
+      });
+      await drafts.saveDraftState(ctx.db, draft.id, {
+        days: [2],
+        windows: { '2': ['evening'] },
+      });
+
+      const outcome = await commitUnfinishedDrafts(ctx, group, week);
+      expect(outcome.committed).toBe(1);
+
+      const responded = await weeklyResponses.listRespondedUserIds(ctx.db, {
+        groupId: group.id,
+        weekStartDate: week,
+      });
+      expect(responded).toContain(members[0]!.id);
+
+      // ...and the slot counts towards overlap, which is the whole point.
+      const slots = await availability.listSlotsForSelf(ctx.db, members[0]!.id, {
+        groupId: group.id,
+        weekStartDate: week,
+      });
+      expect(slots).toHaveLength(1);
+
+      // The draft is consumed, so this cannot fire twice.
+      expect(await drafts.findDraftById(ctx.db, draft.id)).toBeNull();
+    });
+  });
+
+  it('ignores a draft with nothing in it', async () => {
+    await withRollback(async (ctx) => {
+      const { group, members } = await makeGroupWithMembers(ctx, 2);
+      const week = currentWeek(ctx, group.timezone);
+
+      // Opened the DM, closed it. That is not an answer and must not become one
+      // - recording it would also make them silently un-buzzable.
+      await drafts.startOrResumeDraft(ctx.db, members[0]!.id, {
+        groupId: group.id,
+        weekStartDate: week,
+      });
+
+      const outcome = await commitUnfinishedDrafts(ctx, group, week);
+      expect(outcome).toEqual({ committed: 0, skipped: 1 });
+
+      const responded = await weeklyResponses.listRespondedUserIds(ctx.db, {
+        groupId: group.id,
+        weekStartDate: week,
+      });
+      expect(responded).not.toContain(members[0]!.id);
+    });
+  });
+
+  it('defaults capacity to one session when they never got that far', async () => {
+    await withRollback(async (ctx) => {
+      const { group, members } = await makeGroupWithMembers(ctx, 2);
+      const week = currentWeek(ctx, group.timezone);
+
+      const draft = await drafts.startOrResumeDraft(ctx.db, members[0]!.id, {
+        groupId: group.id,
+        weekStartDate: week,
+      });
+      await drafts.saveDraftState(ctx.db, draft.id, { windows: { '2': ['evening'] } });
+      await commitUnfinishedDrafts(ctx, group, week);
+
+      const response = await weeklyResponses.getResponseForSelf(ctx.db, members[0]!.id, {
+        groupId: group.id,
+        weekStartDate: week,
+      });
+      expect(response?.sessionsCommitted).toBe(1);
+      expect(response?.status).toBe('submitted');
     });
   });
 });

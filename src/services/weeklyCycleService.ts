@@ -17,9 +17,12 @@ import * as jobRuns from '../db/repositories/jobRuns.js';
 import * as memberships from '../db/repositories/memberships.js';
 import * as users from '../db/repositories/users.js';
 import * as weeklyResponses from '../db/repositories/weeklyResponses.js';
-import type { GroupRecord } from '../db/repositories/types.js';
+import * as drafts from '../db/repositories/drafts.js';
+import type { DraftState, GroupRecord, SlotRow } from '../db/repositories/types.js';
+import type { Capacity, Day } from '../domain/constants.js';
 import type { AppContext } from './context.js';
 import { sendWeeklyPrompt } from './weeklyFlowService.js';
+import { submit } from './responseService.js';
 
 /** Is it time to open the week for this group? */
 export function isPromptDue(group: GroupRecord, now: Date): boolean {
@@ -125,4 +128,90 @@ export async function claimSteamSync(
 
 export function currentWeekFor(ctx: AppContext, group: GroupRecord): IsoDate {
   return weekStartDate(ctx.clock.now(), group.timezone);
+}
+
+export interface AutoCommitOutcome {
+  committed: number;
+  skipped: number;
+}
+
+/**
+ * Commits unfinished drafts at the cutoff, so forgetting to tap Submit does not
+ * erase someone's answers.
+ *
+ * The problem this solves: everything a member picks lives in response_draft
+ * until the final button writes weekly_response, availability_slot and vibe_tag
+ * in one transaction. Someone who picked their days on the bus and never came
+ * back was, as far as the leaderboard was concerned, silent - even though we
+ * knew exactly when they were free.
+ *
+ * Why at the cutoff rather than on every tap: a weekly_response row is what
+ * makes a member un-buzzable, so writing one the moment they pick a day would
+ * make a half-finished person immune to being nudged - inverting the rule the
+ * buzz feature exists to serve. Holding until the cutoff keeps them buzzable
+ * for exactly as long as nudging them is still useful, and banks their answers
+ * at the one moment it stops being useful.
+ *
+ * Capacity defaults to 1 when they never reached that step. It is the
+ * conservative read - they are around, assume they are up for one session -
+ * and it only ever affects the tie-break between equal-headcount windows, never
+ * the headcount itself.
+ */
+export async function commitUnfinishedDrafts(
+  ctx: AppContext,
+  group: GroupRecord,
+  week: IsoDate,
+): Promise<AutoCommitOutcome> {
+  const pending = await drafts.listDraftsForWeek(ctx.db, {
+    groupId: group.id,
+    weekStartDate: week,
+  });
+
+  let committed = 0;
+  let skipped = 0;
+
+  for (const draft of pending) {
+    const slots = draftSlots(draft.state);
+
+    // Nothing to bank. An empty draft is someone who opened the DM and closed
+    // it, which is not an answer and must not be recorded as one.
+    if (slots.length === 0) {
+      skipped++;
+      continue;
+    }
+
+    try {
+      await submit(ctx, {
+        userId: draft.userId,
+        groupId: group.id,
+        weekStartDate: week,
+        sessionsCommitted: (draft.state.capacity ?? 1) as Capacity,
+        slots,
+        vibes: draft.state.vibes ?? [],
+        draftId: draft.id,
+      });
+      committed++;
+    } catch (error) {
+      // Already submitted between the read and here, or otherwise invalid. One
+      // bad draft must not cost the rest of the group theirs.
+      ctx.logger.warn('could not auto-commit draft', { draftId: draft.id, error });
+      skipped++;
+    }
+  }
+
+  if (committed > 0) {
+    ctx.logger.info('auto-committed unfinished drafts', { groupId: group.id, week, committed });
+  }
+  return { committed, skipped };
+}
+
+/** The draft's window picks, flattened into the rows submit() expects. */
+function draftSlots(state: DraftState): SlotRow[] {
+  const slots: SlotRow[] = [];
+  for (const [day, windows] of Object.entries(state.windows ?? {})) {
+    const dayOfWeek = Number(day);
+    if (!Number.isInteger(dayOfWeek)) continue;
+    for (const window of windows) slots.push({ dayOfWeek: dayOfWeek as Day, window });
+  }
+  return slots;
 }

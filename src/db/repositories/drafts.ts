@@ -93,6 +93,27 @@ export async function deleteDraft(db: Queryable, id: number): Promise<void> {
   await db.query(`DELETE FROM response_draft WHERE id = $1`, [id]);
 }
 
+/**
+ * Every unfinished draft for a group's week.
+ *
+ * Aggregate-shaped by intent but it does carry user_id, because the only caller
+ * turns each draft into that user's own submission. It is not reachable from
+ * any view - see the allowlist in test/invariants/privacy.test.ts.
+ */
+export async function listDraftsForWeek(
+  db: Queryable,
+  params: { groupId: GroupId; weekStartDate: IsoDate },
+): Promise<DraftRecord[]> {
+  const result = await db.query<DraftRow>(
+    `SELECT ${COLUMNS}
+       FROM response_draft
+      WHERE group_id = $1 AND week_start_date = $2
+      ORDER BY id`,
+    [params.groupId, params.weekStartDate],
+  );
+  return result.rows.map(toRecord);
+}
+
 export async function deleteStaleDrafts(db: Queryable, olderThanDays: number): Promise<number> {
   const result = await db.query(
     `DELETE FROM response_draft WHERE updated_at < now() - ($1 || ' days')::interval`,
