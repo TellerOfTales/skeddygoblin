@@ -43,7 +43,33 @@ export function buzz(params: {
   groupId: number;
   groupName: string;
   weekStartDate: IsoDate;
+  /** They picked something and never submitted, so the ask is different. */
+  halfDone?: boolean;
 }): NotifyPayload {
+  if (params.halfDone) {
+    return {
+      title: `Nudge from ${params.groupName}`,
+      body: [
+        `You started answering for **${formatWeekLabel(params.weekStartDate)}** in ` +
+          `**${params.groupName}** but never hit Submit, so your answers are not counted yet.`,
+        '',
+        'Pick up where you left off — everything you chose is still there.',
+      ].join('\n'),
+      actions: [
+        {
+          label: 'Finish and submit',
+          style: 'primary',
+          action: { kind: 'start_weekly_flow', groupId: params.groupId },
+        },
+        {
+          label: "Can't this week",
+          style: 'secondary',
+          action: { kind: 'opt_out_week', groupId: params.groupId },
+        },
+      ],
+    };
+  }
+
   return {
     title: `Nudge from ${params.groupName}`,
     // Deliberately does not name who buzzed. The roster is public, but turning

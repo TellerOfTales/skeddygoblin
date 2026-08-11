@@ -54,6 +54,7 @@ async function handleBuzz(
       weekStartDate: roster.weekStartDate,
       rows: roster.rows,
       responded: roster.responded,
+      started: roster.started,
       total: roster.total,
     }),
   );

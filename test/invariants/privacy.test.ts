@@ -85,6 +85,9 @@ describe('P1: no raw record reaches another member', () => {
           'buzzedToday',
           'discordId',
           'hasResponded',
+          // Progress, not content: 'started' says someone picked something,
+          // never what. Windows, capacity and vibes stay unreachable here.
+          'progress',
           'userId',
         ]);
       }
@@ -133,6 +136,8 @@ describe('P2: repository export naming discipline', () => {
     // Carries user_id, but only ever to turn each draft into that same user's
     // own submission at the cutoff. No view can reach it.
     'listDraftsForWeek',
+    // Ids only - who has started, never what they picked.
+    'listUserIdsWithProgress',
     // aggregates - counts and scores only
     'rankWindowAggregate',
     'countSubmittedResponders',

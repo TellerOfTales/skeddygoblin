@@ -23,6 +23,7 @@ import * as groups from '../db/repositories/groups.js';
 import * as memberships from '../db/repositories/memberships.js';
 import * as users from '../db/repositories/users.js';
 import * as weeklyResponses from '../db/repositories/weeklyResponses.js';
+import * as drafts from '../db/repositories/drafts.js';
 import type { GroupId, UserId } from '../db/repositories/types.js';
 import * as templates from '../notify/templates.js';
 import type { AppContext } from './context.js';
@@ -101,6 +102,11 @@ export async function buzz(
     throw new DomainError('TARGET_NOT_MEMBER');
   }
 
+  const started = await drafts.listUserIdsWithProgress(ctx.db, {
+    groupId: group.id,
+    weekStartDate: params.weekStartDate,
+  });
+
   const result = await ctx.notifier.notify(
     {
       id: target.id,
@@ -110,6 +116,9 @@ export async function buzz(
     },
     'buzz',
     templates.buzz({
+      // Changes the ask from "please answer" to "please finish", which is the
+      // only actionable thing to say to someone two taps from done.
+      halfDone: started.includes(params.targetUserId),
       groupId: group.id,
       groupName: group.name,
       weekStartDate: params.weekStartDate,

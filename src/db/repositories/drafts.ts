@@ -114,6 +114,33 @@ export async function listDraftsForWeek(
   return result.rows.map(toRecord);
 }
 
+/**
+ * Members whose draft has at least one window picked.
+ *
+ * Returns ids and nothing else - never the picks themselves. "Kit has started"
+ * is progress; "Kit is free Wednesday evening" is a raw preference disclosure,
+ * and only the first is safe to show the group.
+ */
+export async function listUserIdsWithProgress(
+  db: Queryable,
+  params: { groupId: GroupId; weekStartDate: IsoDate },
+): Promise<UserId[]> {
+  const result = await db.query<{ user_id: number }>(
+    `SELECT user_id
+       FROM response_draft
+      WHERE group_id = $1
+        AND week_start_date = $2
+        AND state -> 'windows' IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+            FROM jsonb_each(state -> 'windows') AS picks(day, windows)
+           WHERE jsonb_array_length(picks.windows) > 0
+        )`,
+    [params.groupId, params.weekStartDate],
+  );
+  return result.rows.map((row) => row.user_id);
+}
+
 export async function deleteStaleDrafts(db: Queryable, olderThanDays: number): Promise<number> {
   const result = await db.query(
     `DELETE FROM response_draft WHERE updated_at < now() - ($1 || ' days')::interval`,
