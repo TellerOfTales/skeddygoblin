@@ -278,3 +278,26 @@ export async function listLinkedUserIds(db: Queryable, groupId: GroupId): Promis
   );
   return result.rows.map((row) => row.id);
 }
+
+/**
+ * How many members have not linked Steam. A COUNT, never a list of names.
+ *
+ * "3 of you have not linked Steam" is an aggregate the group can act on;
+ * "Dana has not linked Steam" would single someone out on a public board for
+ * having done nothing wrong.
+ */
+export async function countUnlinkedMembersAggregate(
+  db: Queryable,
+  groupId: GroupId,
+): Promise<{ unlinked: number; total: number }> {
+  const result = await db.query<{ unlinked: string; total: string }>(
+    `SELECT COUNT(*) FILTER (WHERE u.steam_id IS NULL)::bigint AS unlinked,
+            COUNT(*)::bigint AS total
+       FROM group_membership m
+       JOIN app_user u ON u.id = m.user_id
+      WHERE m.group_id = $1`,
+    [groupId],
+  );
+  const row = result.rows[0];
+  return { unlinked: Number(row?.unlinked ?? 0), total: Number(row?.total ?? 0) };
+}

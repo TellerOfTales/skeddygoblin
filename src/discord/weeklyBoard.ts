@@ -15,7 +15,7 @@
 
 import type { Client, Guild } from 'discord.js';
 import { buildOverlapReport } from '../services/overlapService.js';
-import { suggestGamesPage } from '../services/gameService.js';
+import { countUnlinkedMembers, suggestGamesPage } from '../services/gameService.js';
 import { claimCutoffPost, isEveryoneAnswered } from '../services/weeklyCycleService.js';
 import { formatPrice } from '../domain/gameMatching.js';
 import { leaderboardView } from './views/leaderboard.view.js';
@@ -76,6 +76,7 @@ export async function publishWeeklyBoard(
   const scope = { groupId: group.id, weekStartDate: week };
   const report = await buildOverlapReport(ctx, scope);
   const games = await sharedGames(ctx, scope);
+  const steam = await countUnlinkedMembers(ctx, group.id);
 
   await channel.send(
     leaderboardView({
@@ -89,6 +90,7 @@ export async function publishWeeklyBoard(
       suppressedForPrivacy: report.suppressedForPrivacy,
       showLockIn: true,
       games,
+      steam,
       reason,
     }),
   );

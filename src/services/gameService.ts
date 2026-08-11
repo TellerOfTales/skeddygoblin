@@ -280,3 +280,16 @@ export async function listGameOptions(
 ): Promise<GameOption[]> {
   return gameVotes.listOptionsAggregate(ctx.db, params.proposalId, params.viewerUserId);
 }
+
+/**
+ * How many members still need to link Steam, as counts only.
+ *
+ * Surfaced on the public board so the group can see WHY the games section is
+ * thin, without naming anyone for not having got round to it yet.
+ */
+export async function countUnlinkedMembers(
+  ctx: AppContext,
+  groupId: GroupId,
+): Promise<{ unlinked: number; total: number }> {
+  return steam.countUnlinkedMembersAggregate(ctx.db, groupId);
+}

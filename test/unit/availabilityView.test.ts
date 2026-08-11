@@ -17,7 +17,15 @@ import {
   submittedView,
   windowPickerView,
 } from '../../src/discord/views/availability.view.js';
-import { DAYS, DAYS_PER_PAGE, WINDOWS, type Day, type Window } from '../../src/domain/constants.js';
+import {
+  DAYS,
+  DAYS_PER_PAGE,
+  MAX_VIBE_SELECTIONS,
+  VIBE_TAGS,
+  WINDOWS,
+  type Day,
+  type Window,
+} from '../../src/domain/constants.js';
 import { parseCustomId } from '../../src/discord/customId.js';
 
 const BASE = {
@@ -400,5 +408,35 @@ describe('singlePromptView', () => {
     const escape = rows(singlePromptView(base)).at(-1)!.components.at(-1)!;
     expect(escape.label).toBe("Can't this week");
     expect(escape.disabled).toBeFalsy();
+  });
+});
+
+/**
+ * The vibe list grew to twenty. Discord allows 25 options in a select, so this
+ * is the check that stops the next addition silently breaking the message.
+ */
+describe('the vibe vocabulary fits its select', () => {
+  it('offers every tag, within Discord limits', () => {
+    const view = singlePromptView({
+      ...({
+        draftId: 42,
+        groupId: 7,
+        groupName: 'The Basement',
+        timezone: 'Europe/London',
+        weekStartDate: '2026-08-10',
+        selectedDays: [],
+        simpleWindows: [],
+        windowsByDay: {},
+        capacity: undefined,
+      } as unknown as Parameters<typeof singlePromptView>[0]),
+      vibes: [...VIBE_TAGS].slice(0, MAX_VIBE_SELECTIONS),
+    });
+
+    assertLegalMessage(view, 'singlePrompt');
+
+    const vibeSelect = rows(view)[3]!.components[0]!;
+    expect(vibeSelect.options).toHaveLength(VIBE_TAGS.length);
+    expect(vibeSelect.max_values).toBe(MAX_VIBE_SELECTIONS);
+    expect(VIBE_TAGS.length).toBeLessThanOrEqual(25);
   });
 });

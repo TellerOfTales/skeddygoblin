@@ -3,6 +3,8 @@ import type { AppContext } from '../../services/context.js';
 import { resolveActor } from '../../services/membershipService.js';
 import { currentWeek } from '../../services/responseService.js';
 import { buildOverlapReport } from '../../services/overlapService.js';
+import { countUnlinkedMembers, suggestGamesPage } from '../../services/gameService.js';
+import { formatPrice } from '../../domain/gameMatching.js';
 import { leaderboardView } from '../views/leaderboard.view.js';
 
 export const data = new SlashCommandBuilder()
@@ -32,9 +34,28 @@ export async function execute(
   });
 
   const week = currentWeek(ctx, actor.group.timezone);
-  const report = await buildOverlapReport(ctx, { groupId: actor.group.id, weekStartDate: week });
+  const scope = { groupId: actor.group.id, weekStartDate: week };
+  const report = await buildOverlapReport(ctx, scope);
+
+  // Windows and games are the same decision - "when can we play" is only half
+  // of it - so the board carries both rather than making anyone run /games.
+  let games: { name: string; ownerCount: number; price: string | null }[] = [];
+  try {
+    const page = await suggestGamesPage(ctx, { ...scope, pageSize: 3 });
+    games = page.games.map((game) => ({
+      name: game.name,
+      ownerCount: game.ownerCount,
+      price: formatPrice(game.priceCents, game.currency, { usdMinorUnits: game.priceCentsUsd }),
+    }));
+  } catch (error) {
+    ctx.logger.debug('no games for the overlap board', { error });
+  }
+
+  const steam = await countUnlinkedMembers(ctx, actor.group.id);
 
   const view = leaderboardView({
+    games,
+    steam,
     groupId: actor.group.id,
     groupName: actor.group.name,
     weekStartDate: report.weekStartDate,

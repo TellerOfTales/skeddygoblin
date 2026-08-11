@@ -135,45 +135,89 @@ export function isCapacity(value: unknown): value is Capacity {
  */
 export const VIBE_TAGS = [
   'Co-op',
+  'Online Co-op',
   'Online PvP',
-  'Casual',
   'Action',
+  'Adventure',
   'Strategy',
   'RPG',
   'Simulation',
   'Racing',
+  'Sports',
+  'Casual',
+  'Indie',
+  'Massively Multiplayer',
+  'Early Access',
+  'Free To Play',
+  'Survival',
+  'Horror',
+  'Puzzle',
+  'Shooter',
+  'Open World',
 ] as const;
 export type VibeTag = (typeof VIBE_TAGS)[number];
 
 /** Plain-English labels. The stored value stays the exact Steam term. */
 export const VIBE_LABELS: Record<VibeTag, string> = {
   'Co-op': 'Co-op',
+  'Online Co-op': 'Online co-op',
   'Online PvP': 'Versus',
-  Casual: 'Casual',
   Action: 'Action',
+  Adventure: 'Adventure',
   Strategy: 'Strategy',
   RPG: 'RPG',
   Simulation: 'Simulation',
   Racing: 'Racing',
+  Sports: 'Sports',
+  Casual: 'Casual',
+  Indie: 'Indie',
+  'Massively Multiplayer': 'MMO',
+  'Early Access': 'Early access',
+  'Free To Play': 'Free to play',
+  Survival: 'Survival',
+  Horror: 'Horror',
+  Puzzle: 'Puzzle',
+  Shooter: 'Shooter',
+  'Open World': 'Open world',
 };
 
 export const VIBE_DESCRIPTIONS: Record<VibeTag, string> = {
   'Co-op': 'Playing through something on the same side',
+  'Online Co-op': 'Co-op specifically over the internet',
   'Online PvP': 'Against each other',
-  Casual: 'Low stakes, easy to drop in and out of',
   Action: 'Shooters, brawlers, anything twitchy',
+  Adventure: 'Exploring, puzzles, going somewhere',
   Strategy: 'Thinking games, base building, tactics',
   RPG: 'Characters, loot, a long arc',
   Simulation: 'Farming, building, management',
   Racing: 'Cars, karts, anything with a finish line',
+  Sports: 'Football, golf, anything with a scoreboard',
+  Casual: 'Low stakes, easy to drop in and out of',
+  Indie: 'Smaller, stranger, usually cheaper',
+  'Massively Multiplayer': 'Big persistent worlds',
+  'Early Access': 'Unfinished, and that is the fun',
+  'Free To Play': 'Nobody has to buy anything',
+  Survival: 'Scraping by, crafting, not dying',
+  Horror: 'Being frightened together',
+  Puzzle: 'Working something out',
+  Shooter: 'Guns, specifically',
+  'Open World': 'Wander off and see what happens',
 };
 
 export function isVibeTag(value: unknown): value is VibeTag {
   return typeof value === 'string' && (VIBE_TAGS as readonly string[]).includes(value);
 }
 
-/** Max vibe tags a member may pick in one week. Keeps the select terse. */
-export const MAX_VIBE_SELECTIONS = 3;
+/**
+ * Max vibe tags a member may pick in one week.
+ *
+ * Raised from 3 alongside the wider tag list: with twenty options, three picks
+ * is a narrow slice of what someone is actually up for, and the matcher scores
+ * a game by the SHARE of the week's picks it satisfies - so more picks make the
+ * ranking finer, not noisier. Still capped, because "everything" is the same
+ * information as "nothing".
+ */
+export const MAX_VIBE_SELECTIONS = 5;
 
 // ---------------------------------------------------------------------------
 // Component layout

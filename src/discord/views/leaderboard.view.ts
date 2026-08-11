@@ -40,6 +40,8 @@ export interface LeaderboardParams {
   games?: { name: string; ownerCount: number; price: string | null }[];
   /** Why this posted, so the group knows whether more answers are coming. */
   reason?: 'cutoff' | 'everyone-answered';
+  /** Counts only - the board never names who has not linked Steam. */
+  steam?: { unlinked: number; total: number };
 }
 
 export function leaderboardView(params: LeaderboardParams): BaseMessageOptions {
@@ -80,6 +82,20 @@ export function leaderboardView(params: LeaderboardParams): BaseMessageOptions {
             (game.price ? ` · ${game.price}` : ''),
         )
         .join('\n'),
+    });
+  }
+
+  // Says WHY the games section is thin, without singling anyone out for having
+  // done nothing wrong. A count is actionable; a name is a callout.
+  const steam = params.steam;
+  if (steam && steam.unlinked > 0) {
+    const noGames = !params.games || params.games.length === 0;
+    embed.addFields({
+      name: noGames ? 'No shared games yet' : 'More games to find',
+      value:
+        `${steam.unlinked} of ${steam.total} ${steam.unlinked === 1 ? 'person has' : 'people have'} ` +
+        'not linked Steam. `/link-steam` takes a few seconds, and only ever shows how many of ' +
+        'you own a game — never who.',
     });
   }
 

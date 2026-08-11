@@ -55,9 +55,26 @@ export interface GameFacts {
  * broadenings are the single concession to Steam's own inconsistency, and they
  * are listed explicitly rather than inferred.
  */
+/**
+ * Steam terms that should satisfy a vibe without being the literal string.
+ *
+ * Only ever WIDENS a match. Every key is still matched exactly first, so this
+ * cannot make a game match a vibe it has no claim to - it just stops "Co-op"
+ * missing a game Steam labelled "Shared/Split Screen Co-op".
+ *
+ * Kept small and obvious on purpose: guesswork sitting between what someone
+ * picked and what they get suggested is the worst place for it, which is why
+ * the tags are real Steam vocabulary in the first place.
+ */
 const IMPLIED_BY: Partial<Record<VibeTag, string[]>> = {
   'Co-op': ['Online Co-op', 'Shared/Split Screen Co-op', 'LAN Co-op'],
+  'Online Co-op': ['Co-op'],
   'Online PvP': ['PvP', 'Shared/Split Screen PvP', 'LAN PvP'],
+  Shooter: ['FPS', 'Third-Person Shooter'],
+  'Massively Multiplayer': ['MMORPG'],
+  'Free To Play': ['Free to Play'],
+  'Open World': ['Open World Survival Craft'],
+  Horror: ['Survival Horror'],
 };
 
 export function matchesVibe(game: GameFacts, vibe: VibeTag): boolean {

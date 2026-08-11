@@ -146,6 +146,8 @@ describe('P2: repository export naming discipline', () => {
     'countSubmittedResponders',
     'countRespondersAggregate',
     'countVibesAggregate',
+    // Counts only: how many have not linked Steam, never which of them.
+    'countUnlinkedMembersAggregate',
     'countAttendanceAggregate',
     'countSlotsForGroup',
     'countMembers',

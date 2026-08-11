@@ -5,6 +5,7 @@ import * as availability from '../../src/db/repositories/availability.js';
 import * as vibesRepo from '../../src/db/repositories/vibes.js';
 import * as drafts from '../../src/db/repositories/drafts.js';
 import * as draftService from '../../src/services/draftService.js';
+import { MAX_VIBE_SELECTIONS } from '../../src/domain/constants.js';
 import {
   currentWeek,
   getOwnSubmission,
@@ -268,15 +269,20 @@ describe('draft to submission', () => {
       const { draftId } = await seed(ctx);
       const draft = (await drafts.findDraftById(ctx.db, draftId))!;
 
+      // Deduplicated first, then capped: "everything" carries the same
+      // information as "nothing", which is why there is a cap at all.
       const updated = await draftService.setVibes(ctx, draft, [
         'Casual',
         'Action',
         'Action',
         'Online PvP',
         'Simulation',
+        'Horror',
+        'Puzzle',
+        'Racing',
       ]);
 
-      expect(draftService.chosenVibes(updated.state)).toHaveLength(3);
+      expect(draftService.chosenVibes(updated.state)).toHaveLength(MAX_VIBE_SELECTIONS);
     });
   });
 
