@@ -189,3 +189,16 @@ export function formatWeekLabel(weekStart: IsoDate): string {
     month: 'short',
   }).format(date);
 }
+
+/**
+ * The Monday before a given week start.
+ *
+ * Arithmetic on a UTC-midnight Date, never a local one: doing it locally breaks
+ * on the DST-transition weeks, which is exactly when someone is most likely to
+ * be checking what they said last week.
+ */
+export function previousWeek(weekStartDate: IsoDate): IsoDate {
+  const date = new Date(`${weekStartDate}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - 7);
+  return date.toISOString().slice(0, 10) as IsoDate;
+}

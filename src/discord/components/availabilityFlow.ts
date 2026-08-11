@@ -24,6 +24,7 @@ import type { AppContext } from '../../services/context.js';
 import { resolveMemberByDiscordId } from '../../services/membershipService.js';
 import { currentWeek, optOut, startOrResumeFlow, submit } from '../../services/responseService.js';
 import * as draftService from '../../services/draftService.js';
+import * as personalDefaults from '../../services/personalDefaultsService.js';
 import type { DraftRecord, GroupRecord } from '../../services/types.js';
 import {
   singlePromptView,
@@ -64,6 +65,10 @@ function renderWindowPage(
 function renderSinglePrompt(
   draft: DraftRecord,
   group: GroupRecord,
+  offers: { hasLastWeek: boolean; hasDefaults: boolean } = {
+    hasLastWeek: false,
+    hasDefaults: false,
+  },
 ): ReturnType<typeof singlePromptView> {
   return singlePromptView({
     draftId: draft.id,
@@ -76,7 +81,29 @@ function renderSinglePrompt(
     windowsByDay: draft.state.windows ?? {},
     capacity: draftService.chosenCapacity(draft.state),
     vibes: draftService.chosenVibes(draft.state),
+    hasLastWeek: offers.hasLastWeek,
+    hasDefaults: offers.hasDefaults,
   });
+}
+
+/**
+ * What the two prefill buttons have to offer this member, right now.
+ *
+ * Computed per render rather than cached: it is two cheap self-scoped reads,
+ * and a button that promises a prefill and then delivers nothing is worse than
+ * a disabled one.
+ */
+async function prefillOffers(
+  ctx: AppContext,
+  draft: DraftRecord,
+  group: GroupRecord,
+): Promise<{ hasLastWeek: boolean; hasDefaults: boolean }> {
+  const [lastWeek, defaults] = await Promise.all([
+    draftService.lastWeekAnswer(ctx, draft, group.id),
+    personalDefaults.getDefaults(ctx, draft.userId),
+  ]);
+
+  return { hasLastWeek: lastWeek.slots.length > 0, hasDefaults: defaults.slots.length > 0 };
 }
 
 function renderDayPicker(draft: DraftRecord, group: GroupRecord): ReturnType<typeof dayPickerView> {
@@ -153,7 +180,9 @@ async function handleOptIn(
     weekStartDate: week,
   });
 
-  await interaction.editReply(renderSinglePrompt(draft, actor.group));
+  await interaction.editReply(
+    renderSinglePrompt(draft, actor.group, await prefillOffers(ctx, draft, actor.group)),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +202,9 @@ async function handleDaysSelected(
   const days = interaction.values.map(Number).filter(isDay) as Day[];
   const updated = await draftService.setDays(ctx, draft, days);
 
-  await interaction.editReply(renderSinglePrompt(updated, group));
+  await interaction.editReply(
+    renderSinglePrompt(updated, group, await prefillOffers(ctx, updated, group)),
+  );
 }
 
 async function handleWindowsSelected(
@@ -258,7 +289,9 @@ async function handleDone(
     return;
   }
 
-  await interaction.editReply(renderSinglePrompt(draft, group));
+  await interaction.editReply(
+    renderSinglePrompt(draft, group, await prefillOffers(ctx, draft, group)),
+  );
 }
 
 /** Opens the per-day picker, seeded so nothing the member already said is lost. */
@@ -272,6 +305,105 @@ async function handlePerDay(
   const seeded = await draftService.seedPerDayWindows(ctx, draft);
 
   await interaction.editReply(renderWindowPage(seeded, group, 0));
+}
+
+/**
+ * Prefills the whole prompt from what this member said last week.
+ *
+ * Lands as per-day windows, because last week was a real week and rarely a
+ * clean cross product - flattening it would quietly discard the precision they
+ * took the trouble to express.
+ */
+async function handleCopyLastWeek(
+  interaction: ComponentInteraction,
+  ctx: AppContext,
+  parsed: ParsedCustomId,
+): Promise<void> {
+  await interaction.deferUpdate();
+  const { draft, group } = await loadContext(ctx, interaction, parsed.args[0]);
+
+  const previous = await draftService.lastWeekAnswer(ctx, draft, group.id);
+  if (previous.slots.length === 0) {
+    // The button renders disabled in this case; a stale message can still get
+    // here, and re-rendering is friendlier than an error.
+    await interaction.editReply(
+      renderSinglePrompt(draft, group, await prefillOffers(ctx, draft, group)),
+    );
+    return;
+  }
+
+  const updated = await draftService.prefillFromSlots(ctx, draft, previous);
+
+  await interaction.editReply(
+    renderSinglePrompt(updated, group, await prefillOffers(ctx, updated, group)),
+  );
+}
+
+/** Prefills from the member's cross-server template. */
+async function handleUseDefaults(
+  interaction: ComponentInteraction,
+  ctx: AppContext,
+  parsed: ParsedCustomId,
+): Promise<void> {
+  await interaction.deferUpdate();
+  const { draft, group } = await loadContext(ctx, interaction, parsed.args[0]);
+
+  const defaults = await personalDefaults.getDefaults(ctx, draft.userId);
+  const updated =
+    defaults.slots.length === 0
+      ? draft
+      : await draftService.prefillFromSlots(ctx, draft, {
+          slots: defaults.slots,
+          capacity: defaults.capacity,
+          vibes: defaults.vibes,
+        });
+
+  await interaction.editReply(
+    renderSinglePrompt(updated, group, await prefillOffers(ctx, updated, group)),
+  );
+}
+
+/**
+ * Remembers this week's answer as the member's cross-server template.
+ *
+ * Re-reads what was actually submitted rather than trusting the draft, which
+ * submit() has already consumed by this point.
+ */
+async function handleSaveDefaults(
+  interaction: ComponentInteraction,
+  ctx: AppContext,
+  parsed: ParsedCustomId,
+): Promise<void> {
+  await interaction.deferUpdate();
+  const summary = await personalDefaults.saveDefaultsFromLatestAnswer(
+    ctx,
+    fromBase36(parsed.args[0] ?? ''),
+  );
+  if (!summary) return;
+
+  await interaction.editReply(submittedView({ ...summary, savedAsDefaults: true }));
+}
+
+/** Toggles "answer for me every week" without leaving the confirmation. */
+async function handleAutoApply(
+  interaction: ComponentInteraction,
+  ctx: AppContext,
+  parsed: ParsedCustomId,
+): Promise<void> {
+  await interaction.deferUpdate();
+  const userId = fromBase36(parsed.args[0] ?? '');
+
+  const current = await personalDefaults.getDefaults(ctx, userId);
+  await personalDefaults.setAutoApply(ctx, userId, !current.autoApply);
+
+  const summary = await personalDefaults.saveDefaultsFromLatestAnswer(ctx, userId, {
+    saveSlots: false,
+  });
+  if (!summary) return;
+
+  await interaction.editReply(
+    submittedView({ ...summary, savedAsDefaults: current.slots.length > 0 }),
+  );
 }
 
 /** Row 2 of the single prompt: windows that apply to every chosen day. */
@@ -288,7 +420,9 @@ async function handleSimpleWindows(
   const windows = interaction.values.filter(isWindow) as Window[];
   const updated = await draftService.setSimpleWindows(ctx, draft, windows);
 
-  await interaction.editReply(renderSinglePrompt(updated, group));
+  await interaction.editReply(
+    renderSinglePrompt(updated, group, await prefillOffers(ctx, updated, group)),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -311,7 +445,9 @@ async function handleCapacity(
   const { draft, group } = await loadContext(ctx, interaction, parsed.args[0]);
   const updated = await draftService.setCapacity(ctx, draft, capacity);
 
-  await interaction.editReply(renderSinglePrompt(updated, group));
+  await interaction.editReply(
+    renderSinglePrompt(updated, group, await prefillOffers(ctx, updated, group)),
+  );
 }
 
 async function handleVibe(
@@ -325,7 +461,9 @@ async function handleVibe(
   const { draft, group } = await loadContext(ctx, interaction, parsed.args[0]);
   const updated = await draftService.setVibes(ctx, draft, interaction.values as VibeTag[]);
 
-  await interaction.editReply(renderSinglePrompt(updated, group));
+  await interaction.editReply(
+    renderSinglePrompt(updated, group, await prefillOffers(ctx, updated, group)),
+  );
 }
 
 async function handleSubmit(
@@ -340,7 +478,9 @@ async function handleSubmit(
   if (capacity === undefined) {
     // Should be unreachable - Submit renders disabled without availability -
     // but the service is the authority, not the button state.
-    await interaction.editReply(renderSinglePrompt(draft, group));
+    await interaction.editReply(
+      renderSinglePrompt(draft, group, await prefillOffers(ctx, draft, group)),
+    );
     return;
   }
 
@@ -357,8 +497,12 @@ async function handleSubmit(
     draftId: draft.id,
   });
 
+  const defaults = await personalDefaults.getDefaults(ctx, draft.userId);
+
   await interaction.editReply(
     submittedView({
+      userId: draft.userId,
+      autoApply: defaults.autoApply,
       groupName: group.name,
       weekStartDate: draft.weekStartDate,
       capacity,
@@ -385,6 +529,14 @@ async function handle(
       return handleOptIn(interaction, ctx, parsed.args[0]);
     case 'perday':
       return handlePerDay(interaction, ctx, parsed);
+    case 'last':
+      return handleCopyLastWeek(interaction, ctx, parsed);
+    case 'usedef':
+      return handleUseDefaults(interaction, ctx, parsed);
+    case 'savedef':
+      return handleSaveDefaults(interaction, ctx, parsed);
+    case 'auto':
+      return handleAutoApply(interaction, ctx, parsed);
     case 'simplewin':
       return handleSimpleWindows(interaction, ctx, parsed);
     case 'days':

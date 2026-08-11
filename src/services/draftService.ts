@@ -15,6 +15,10 @@
 import { DomainError } from '../domain/errors.js';
 import { DAYS_PER_PAGE } from '../domain/constants.js';
 import * as drafts from '../db/repositories/drafts.js';
+import * as availability from '../db/repositories/availability.js';
+import * as weeklyResponses from '../db/repositories/weeklyResponses.js';
+import * as vibesRepo from '../db/repositories/vibes.js';
+import { previousWeek } from '../domain/week.js';
 import type {
   DraftRecord,
   DraftState,
@@ -215,6 +219,39 @@ export async function seedPerDayWindows(ctx: AppContext, draft: DraftRecord): Pr
  * clean cross product and flattening it would lose exactly the precision the
  * member took the trouble to express.
  */
+export interface PastAnswer {
+  slots: SlotRow[];
+  capacity: number | undefined;
+  vibes: VibeTag[];
+}
+
+/**
+ * Everything this member said last week in this group - slots, capacity and
+ * vibes, so "Copy last week" copies the whole answer rather than only the
+ * calendar half. Self-scoped throughout: every read is a *ForSelf.
+ */
+export async function lastWeekAnswer(
+  ctx: AppContext,
+  draft: DraftRecord,
+  groupId: number,
+): Promise<PastAnswer> {
+  const scope = { groupId, weekStartDate: previousWeek(draft.weekStartDate) };
+
+  const [slots, response, vibes] = await Promise.all([
+    availability.listSlotsForSelf(ctx.db, draft.userId, scope),
+    weeklyResponses.getResponseForSelf(ctx.db, draft.userId, scope),
+    vibesRepo.listVibesForSelf(ctx.db, draft.userId, scope),
+  ]);
+
+  return {
+    slots,
+    // An opt-out week has a response row with zero capacity, which is not a
+    // capacity anyone meant to repeat.
+    capacity: response && response.sessionsCommitted > 0 ? response.sessionsCommitted : undefined,
+    vibes,
+  };
+}
+
 export async function prefillFromSlots(
   ctx: AppContext,
   draft: DraftRecord,

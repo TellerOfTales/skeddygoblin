@@ -198,8 +198,10 @@ describe('windowPickerView', () => {
 });
 
 describe('terminal views', () => {
-  it('the submitted view reassures about privacy and strips components', () => {
+  it('the submitted view reassures about privacy and offers to remember it', () => {
     const view = submittedView({
+      userId: 3,
+      autoApply: false,
       groupName: 'The Basement',
       weekStartDate: '2026-08-10',
       capacity: 2,
@@ -207,8 +209,37 @@ describe('terminal views', () => {
       dayCount: 3,
       vibes: ['Casual'],
     });
-    expect(view.components).toEqual([]);
     expect(view.content).toMatch(/never your individual picks/);
+
+    // Saving a template belongs here, not in the prompt: that button row is
+    // already at Discord's five-button ceiling, and "remember what I just
+    // built" is easier to understand than configuring a template elsewhere.
+    const [row] = rows(view);
+    expect(row!.components.map((component) => component.label)).toEqual([
+      'Save as my defaults',
+      'Auto-answer every week',
+    ]);
+  });
+
+  it('reflects saved defaults rather than offering to save them twice', () => {
+    const view = submittedView({
+      userId: 3,
+      autoApply: true,
+      savedAsDefaults: true,
+      groupName: 'The Basement',
+      weekStartDate: '2026-08-10',
+      capacity: 2,
+      slotCount: 6,
+      dayCount: 3,
+      vibes: [],
+    });
+    const [save, auto] = rows(view)[0]!.components;
+
+    expect(save!.label).toBe('Defaults saved ✓');
+    expect(save!.disabled).toBe(true);
+    expect(auto!.label).toBe('Auto-answer: on');
+    // The cross-server timezone caveat is stated where it applies.
+    expect(view.content).toMatch(/each server's own local time/);
   });
 
   it('the opted-out view offers exactly one way back and no guilt', () => {
@@ -327,16 +358,46 @@ describe('singlePromptView', () => {
   });
 
   it('offers per-day times only once there are days to apply them to', () => {
-    const withoutDays = rows(singlePromptView(base)).at(-1)!.components[1]!;
-    expect(withoutDays.label).toBe('Different times per day');
-    expect(withoutDays.disabled).toBe(true);
+    const button = (params: Parameters<typeof singlePromptView>[0], label: string) =>
+      rows(singlePromptView(params))
+        .at(-1)!
+        .components.find((component) => component.label === label)!;
 
-    const withDays = rows(singlePromptView({ ...base, selectedDays: [2] })).at(-1)!.components[1]!;
-    expect(withDays.disabled).toBe(false);
+    expect(button(base, 'Per-day times').disabled).toBe(true);
+    expect(button({ ...base, selectedDays: [2] }, 'Per-day times').disabled).toBe(false);
+  });
+
+  /**
+   * Five buttons is Discord's hard maximum for a row, and this view uses all
+   * five. Adding a sixth silently breaks the message, so pin the count.
+   */
+  it('fills the button row exactly, prefills included', () => {
+    const buttons = rows(singlePromptView(base)).at(-1)!.components;
+    expect(buttons.map((component) => component.label)).toEqual([
+      'Submit ✓',
+      'Copy last week',
+      'Use my defaults',
+      'Per-day times',
+      "Can't this week",
+    ]);
+  });
+
+  it('disables a prefill that has nothing to offer, rather than lying', () => {
+    const find = (params: Parameters<typeof singlePromptView>[0], label: string) =>
+      rows(singlePromptView(params))
+        .at(-1)!
+        .components.find((component) => component.label === label)!;
+
+    expect(find(base, 'Copy last week').disabled).toBe(true);
+    expect(find(base, 'Use my defaults').disabled).toBe(true);
+
+    const offered = { ...base, hasLastWeek: true, hasDefaults: true };
+    expect(find(offered, 'Copy last week').disabled).toBe(false);
+    expect(find(offered, 'Use my defaults').disabled).toBe(false);
   });
 
   it('always leaves the escape hatch available', () => {
-    const escape = rows(singlePromptView(base)).at(-1)!.components[2]!;
+    const escape = rows(singlePromptView(base)).at(-1)!.components.at(-1)!;
     expect(escape.label).toBe("Can't this week");
     expect(escape.disabled).toBeFalsy();
   });

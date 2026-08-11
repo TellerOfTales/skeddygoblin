@@ -3,7 +3,13 @@ import { closeTestPool, withRollback } from '../helpers/db.js';
 import { makeGroup, makeMember } from '../helpers/fixtures.js';
 import * as drafts from '../../src/db/repositories/drafts.js';
 import * as draftService from '../../src/services/draftService.js';
-import { currentWeek, startOrResumeFlow } from '../../src/services/responseService.js';
+import {
+  currentWeek,
+  optOut,
+  startOrResumeFlow,
+  submit,
+} from '../../src/services/responseService.js';
+import { previousWeek } from '../../src/domain/week.js';
 import type { AppContext } from '../../src/services/context.js';
 import type { DraftRecord, GroupRecord } from '../../src/db/repositories/types.js';
 
@@ -313,6 +319,58 @@ describe('cross-product windows and the per-day override', () => {
         { dayOfWeek: 0, window: 'evening' },
         { dayOfWeek: 2, window: 'afternoon' },
       ]);
+    });
+  });
+});
+
+describe('copy last week', () => {
+  it('brings back slots, capacity and vibes as per-day windows', async () => {
+    await withRollback(async (ctx) => {
+      const { draft, group, userId } = await seedDraft(ctx);
+      const lastWeek = previousWeek(draft.weekStartDate);
+
+      await submit(ctx, {
+        userId,
+        groupId: group.id,
+        weekStartDate: lastWeek,
+        sessionsCommitted: 3,
+        slots: [
+          { dayOfWeek: 2, window: 'evening' },
+          { dayOfWeek: 5, window: 'afternoon' },
+        ],
+        vibes: ['Co-op'],
+      });
+
+      const previous = await draftService.lastWeekAnswer(ctx, draft, group.id);
+      const filled = await draftService.prefillFromSlots(ctx, draft, previous);
+
+      // Per-day, not a cross product: a real week is rarely a clean product,
+      // and Wednesday evening + Saturday afternoon would be flattened into four
+      // slots by one.
+      expect(draftService.toSlotRows(filled.state)).toEqual([
+        { dayOfWeek: 2, window: 'evening' },
+        { dayOfWeek: 5, window: 'afternoon' },
+      ]);
+      expect(draftService.chosenCapacity(filled.state)).toBe(3);
+      expect(draftService.chosenVibes(filled.state)).toEqual(['Co-op']);
+    });
+  });
+
+  it('offers nothing when last week was an opt-out', async () => {
+    await withRollback(async (ctx) => {
+      const { draft, group, userId } = await seedDraft(ctx);
+
+      await optOut(ctx, {
+        userId,
+        groupId: group.id,
+        weekStartDate: previousWeek(draft.weekStartDate),
+      });
+
+      const previous = await draftService.lastWeekAnswer(ctx, draft, group.id);
+      expect(previous.slots).toEqual([]);
+      // Zero capacity is what opting out stores; it is not a capacity anyone
+      // meant to repeat.
+      expect(previous.capacity).toBeUndefined();
     });
   });
 });

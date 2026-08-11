@@ -19,6 +19,8 @@ import * as userDefaults from '../db/repositories/userDefaults.js';
 import * as memberships from '../db/repositories/memberships.js';
 import * as groups from '../db/repositories/groups.js';
 import * as weeklyResponses from '../db/repositories/weeklyResponses.js';
+import * as availability from '../db/repositories/availability.js';
+import * as vibesRepo from '../db/repositories/vibes.js';
 import type { SlotRow, UserId } from '../db/repositories/types.js';
 import type { AppContext } from './context.js';
 import { currentWeek, submit } from './responseService.js';
@@ -142,4 +144,70 @@ export async function autoApplyForGroup(
   }
 
   return answered;
+}
+
+export interface SubmittedSummary {
+  userId: UserId;
+  groupName: string;
+  weekStartDate: string;
+  capacity: Capacity;
+  slotCount: number;
+  dayCount: number;
+  vibes: VibeTag[];
+  autoApply: boolean;
+}
+
+/**
+ * Rebuilds the confirmation summary from what was actually submitted, and
+ * optionally stores it as the member's template.
+ *
+ * Reads the database rather than trusting a draft, because submit() has already
+ * consumed the draft by the time the confirmation's buttons are pressed - and
+ * because "save exactly what I am looking at" is the promise the button makes.
+ */
+export async function saveDefaultsFromLatestAnswer(
+  ctx: AppContext,
+  userId: UserId,
+  options: { saveSlots?: boolean } = {},
+): Promise<SubmittedSummary | null> {
+  const groupIds = await memberships.listGroupIdsForSelf(ctx.db, userId);
+
+  for (const groupId of groupIds) {
+    const group = await groups.findGroupById(ctx.db, groupId);
+    if (!group) continue;
+
+    const week = currentWeek(ctx, group.timezone);
+    const scope = { groupId, weekStartDate: week };
+
+    const response = await weeklyResponses.getResponseForSelf(ctx.db, userId, scope);
+    if (!response || response.status !== 'submitted') continue;
+
+    const slots = await availability.listSlotsForSelf(ctx.db, userId, scope);
+    const vibes = await vibesRepo.listVibesForSelf(ctx.db, userId, scope);
+
+    if (options.saveSlots !== false) {
+      await saveDefaults(ctx, userId, {
+        slots,
+        capacity: isCapacity(response.sessionsCommitted) ? response.sessionsCommitted : undefined,
+        vibes,
+      });
+    }
+
+    const defaults = await userDefaults.getDefaultsForSelf(ctx.db, userId);
+
+    return {
+      userId,
+      groupName: group.name,
+      weekStartDate: week,
+      capacity: (isCapacity(response.sessionsCommitted)
+        ? response.sessionsCommitted
+        : 1) as Capacity,
+      slotCount: slots.length,
+      dayCount: new Set(slots.map((slot) => slot.dayOfWeek)).size,
+      vibes,
+      autoApply: defaults.autoApply,
+    };
+  }
+
+  return null;
 }

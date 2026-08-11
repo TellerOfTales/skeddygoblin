@@ -191,13 +191,24 @@ export function windowPickerView(params: WindowPickerParams): InteractionUpdateO
   };
 }
 
+/**
+ * The confirmation, and the natural moment to offer to remember this.
+ *
+ * Saving defaults belongs here rather than in the prompt itself for two
+ * reasons: the prompt's button row is already at Discord's five-button ceiling,
+ * and "save what I just built" is a far easier thing to understand than "go and
+ * configure a template somewhere".
+ */
 export function submittedView(params: {
+  userId: number;
   groupName: string;
   weekStartDate: IsoDate;
   capacity: Capacity;
   slotCount: number;
   dayCount: number;
   vibes: VibeTag[];
+  autoApply: boolean;
+  savedAsDefaults?: boolean;
 }): InteractionUpdateOptions {
   const vibeLine =
     params.vibes.length > 0 ? ` · ${params.vibes.map((tag) => VIBE_LABELS[tag]).join(', ')}` : '';
@@ -212,8 +223,23 @@ export function submittedView(params: {
       '',
       `${params.groupName} sees only the combined result — never your individual picks.`,
       'Change anything by running `/availability` again.',
+      ...(params.savedAsDefaults
+        ? ['', "_Saved as your defaults. Windows apply as each server's own local time._"]
+        : []),
     ].join('\n'),
-    components: [],
+    components: [
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(encodeCustomId('av', 'savedef', toBase36(params.userId)))
+          .setLabel(params.savedAsDefaults ? 'Defaults saved ✓' : 'Save as my defaults')
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(params.savedAsDefaults === true),
+        new ButtonBuilder()
+          .setCustomId(encodeCustomId('av', 'auto', toBase36(params.userId)))
+          .setLabel(params.autoApply ? 'Auto-answer: on' : 'Auto-answer every week')
+          .setStyle(params.autoApply ? ButtonStyle.Success : ButtonStyle.Secondary),
+      ),
+    ],
   };
 }
 
@@ -283,6 +309,10 @@ export interface SinglePromptParams {
   windowsByDay: Record<string, Window[]>;
   capacity: Capacity | undefined;
   vibes: VibeTag[];
+  /** Enables "Copy last week" - false when there is no last week to copy. */
+  hasLastWeek?: boolean;
+  /** Enables "Use my defaults" - false when they have not set any. */
+  hasDefaults?: boolean;
 }
 
 /**
@@ -367,6 +397,9 @@ export function singlePromptView(params: SinglePromptParams): InteractionUpdateO
   const hasAvailability =
     perDay || (params.selectedDays.length > 0 && params.simpleWindows.length > 0);
 
+  // Five buttons is Discord's hard maximum for one row, and this is all five.
+  // The prefills cannot sit above the selects without costing a whole select
+  // row, which the four questions already spend in full.
   const buttons = [
     new ButtonBuilder()
       .setCustomId(encodeCustomId('av', 'submit', toBase36(params.draftId)))
@@ -374,8 +407,18 @@ export function singlePromptView(params: SinglePromptParams): InteractionUpdateO
       .setStyle(ButtonStyle.Success)
       .setDisabled(!hasAvailability),
     new ButtonBuilder()
+      .setCustomId(encodeCustomId('av', 'last', toBase36(params.draftId)))
+      .setLabel('Copy last week')
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(params.hasLastWeek !== true),
+    new ButtonBuilder()
+      .setCustomId(encodeCustomId('av', 'usedef', toBase36(params.draftId)))
+      .setLabel('Use my defaults')
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(params.hasDefaults !== true),
+    new ButtonBuilder()
       .setCustomId(encodeCustomId('av', 'perday', toBase36(params.draftId)))
-      .setLabel('Different times per day')
+      .setLabel('Per-day times')
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(params.selectedDays.length === 0),
     new ButtonBuilder()
