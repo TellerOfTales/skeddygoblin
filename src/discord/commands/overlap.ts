@@ -1,4 +1,4 @@
-import { MessageFlags, SlashCommandBuilder, type ChatInputCommandInteraction } from 'discord.js';
+import { SlashCommandBuilder, type ChatInputCommandInteraction } from 'discord.js';
 import type { AppContext } from '../../services/context.js';
 import { resolveActor } from '../../services/membershipService.js';
 import { currentWeek } from '../../services/responseService.js';
@@ -14,7 +14,11 @@ export async function execute(
   interaction: ChatInputCommandInteraction,
   ctx: AppContext,
 ): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  // Public, not ephemeral. The leaderboard is entirely aggregate - ranked
+  // windows by headcount, with the k-anonymity floor already applied - and it is
+  // the thing the group gathers around to pick a night. Hiding it from everyone
+  // but the asker defeats the point.
+  await interaction.deferReply();
 
   if (!interaction.guildId) {
     await interaction.editReply('Run this in a server, not a DM.');

@@ -100,10 +100,10 @@ async function prefillOffers(
   draft: DraftRecord,
   group: GroupRecord,
 ): Promise<{ hasLastWeek: boolean; hasDefaults: boolean }> {
-  const [lastWeek, defaults] = await Promise.all([
-    draftService.lastWeekAnswer(ctx, draft, group.id),
-    personalDefaults.getDefaults(ctx, draft.userId),
-  ]);
+  // Sequential for the same reason as everywhere else: one client per
+  // transaction, and pg cannot run two queries on it at once.
+  const lastWeek = await draftService.lastWeekAnswer(ctx, draft, group.id);
+  const defaults = await personalDefaults.getDefaults(ctx, draft.userId);
 
   return { hasLastWeek: lastWeek.slots.length > 0, hasDefaults: defaults.slots.length > 0 };
 }

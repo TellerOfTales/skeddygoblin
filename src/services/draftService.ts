@@ -237,11 +237,11 @@ export async function lastWeekAnswer(
 ): Promise<PastAnswer> {
   const scope = { groupId, weekStartDate: previousWeek(draft.weekStartDate) };
 
-  const [slots, response, vibes] = await Promise.all([
-    availability.listSlotsForSelf(ctx.db, draft.userId, scope),
-    weeklyResponses.getResponseForSelf(ctx.db, draft.userId, scope),
-    vibesRepo.listVibesForSelf(ctx.db, draft.userId, scope),
-  ]);
+  // Sequential, not Promise.all: inside a transaction these share one client,
+  // and pg cannot multiplex a single connection.
+  const slots = await availability.listSlotsForSelf(ctx.db, draft.userId, scope);
+  const response = await weeklyResponses.getResponseForSelf(ctx.db, draft.userId, scope);
+  const vibes = await vibesRepo.listVibesForSelf(ctx.db, draft.userId, scope);
 
   return {
     slots,

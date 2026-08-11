@@ -374,3 +374,54 @@ describe('copy last week', () => {
     });
   });
 });
+
+/**
+ * Progress detection drives two things: the "half done — needs to hit Submit"
+ * line in /status, and whether a buzz says "please answer" or "please finish".
+ *
+ * It regressed silently when the flow moved to one screen: only the per-day
+ * picker writes state.windows, so the common path - days plus shared windows -
+ * looked like no progress at all.
+ */
+describe('who counts as half done', () => {
+  it('counts the single prompt, not just the per-day picker', async () => {
+    await withRollback(async (ctx) => {
+      const { draft, group, userId } = await seedDraft(ctx);
+      const scope = { groupId: group.id, weekStartDate: draft.weekStartDate };
+
+      expect(await drafts.listUserIdsWithProgress(ctx.db, scope)).toEqual([]);
+
+      // Exactly what the single prompt writes.
+      const withDays = await draftService.setDays(ctx, draft, [2, 4]);
+      expect(await drafts.listUserIdsWithProgress(ctx.db, scope)).toEqual([userId]);
+
+      await draftService.setSimpleWindows(ctx, withDays, ['evening']);
+      expect(await drafts.listUserIdsWithProgress(ctx.db, scope)).toEqual([userId]);
+    });
+  });
+
+  it('still counts per-day windows', async () => {
+    await withRollback(async (ctx) => {
+      const { draft, group, userId } = await seedDraft(ctx);
+      const scope = { groupId: group.id, weekStartDate: draft.weekStartDate };
+
+      await draftService.setWindowsForDay(ctx, draft, 2, ['evening']);
+      expect(await drafts.listUserIdsWithProgress(ctx.db, scope)).toEqual([userId]);
+    });
+  });
+
+  it('does not count opening the DM and closing it', async () => {
+    await withRollback(async (ctx) => {
+      const { draft, group } = await seedDraft(ctx);
+
+      // An empty draft is not an answer. Counting it would tell the group
+      // someone is half done when they have done nothing.
+      expect(
+        await drafts.listUserIdsWithProgress(ctx.db, {
+          groupId: group.id,
+          weekStartDate: draft.weekStartDate,
+        }),
+      ).toEqual([]);
+    });
+  });
+});

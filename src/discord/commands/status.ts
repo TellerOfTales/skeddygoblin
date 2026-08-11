@@ -1,4 +1,4 @@
-import { MessageFlags, SlashCommandBuilder, type ChatInputCommandInteraction } from 'discord.js';
+import { SlashCommandBuilder, type ChatInputCommandInteraction } from 'discord.js';
 import type { AppContext } from '../../services/context.js';
 import { resolveActor } from '../../services/membershipService.js';
 import { currentWeek } from '../../services/responseService.js';
@@ -17,7 +17,12 @@ export async function execute(
   interaction: ChatInputCommandInteraction,
   ctx: AppContext,
 ): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  // Public, not ephemeral. Everything on the roster is either a name the group
+  // already sees or an aggregate, so there is nothing here that needs hiding -
+  // and a status only the person who typed it can read cannot do the one job it
+  // has, which is telling the GROUP where the week stands. It is also what makes
+  // the Buzz buttons usable by anyone rather than only the asker.
+  await interaction.deferReply();
 
   if (!interaction.guildId) {
     await interaction.editReply('Run this in a server, not a DM.');

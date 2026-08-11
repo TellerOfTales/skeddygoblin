@@ -130,11 +130,20 @@ export async function listUserIdsWithProgress(
        FROM response_draft
       WHERE group_id = $1
         AND week_start_date = $2
-        AND state -> 'windows' IS NOT NULL
-        AND EXISTS (
-          SELECT 1
-            FROM jsonb_each(state -> 'windows') AS picks(day, windows)
-           WHERE jsonb_array_length(picks.windows) > 0
+        AND (
+          -- Days or shared windows from the single prompt. This is the COMMON
+          -- case and was missed when the flow moved to one screen: only the
+          -- per-day picker writes state->'windows', so a normal half-finished
+          -- member was invisible here and got told to "answer" something they
+          -- had already half answered.
+          jsonb_array_length(COALESCE(state -> 'days', '[]'::jsonb)) > 0
+          OR jsonb_array_length(COALESCE(state -> 'simpleWindows', '[]'::jsonb)) > 0
+          -- Per-day windows, for anyone who used the detailed picker.
+          OR EXISTS (
+            SELECT 1
+              FROM jsonb_each(COALESCE(state -> 'windows', '{}'::jsonb)) AS picks(day, windows)
+             WHERE jsonb_array_length(picks.windows) > 0
+          )
         )`,
     [params.groupId, params.weekStartDate],
   );
