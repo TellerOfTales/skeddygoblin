@@ -27,8 +27,7 @@ import { registerAllComponentHandlers } from './discord/components/registerAll.j
 import { registerGuildCommandsAtBoot } from './discord/registerCommands.js';
 import { DiscordDMNotifier } from './notify/DiscordDMNotifier.js';
 import { NotifierRegistry } from './notify/registry.js';
-import { leaderboardView } from './discord/views/leaderboard.view.js';
-import { buildOverlapReport } from './services/overlapService.js';
+import { publishWeeklyBoard } from './discord/weeklyBoard.js';
 import { startScheduler } from './scheduler/index.js';
 import { startHttpServer, type BootPhase } from './http/server.js';
 import { config as appConfig } from './config.js';
@@ -86,30 +85,9 @@ async function main(): Promise<void> {
   // it is injected rather than reached for from inside the service layer.
   const scheduler = await startScheduler(ctx, {
     async postCutoff(group, week) {
-      if (!group.announceChannelId) {
-        logger.warn('cutoff due but no announce channel configured', { groupId: group.id });
-        return;
-      }
-      const channel = await ready.channels.fetch(group.announceChannelId);
-      if (!channel?.isTextBased() || !('send' in channel)) {
-        logger.warn('announce channel is not postable', { groupId: group.id });
-        return;
-      }
-
-      const report = await buildOverlapReport(ctx, { groupId: group.id, weekStartDate: week });
-      await channel.send(
-        leaderboardView({
-          groupId: group.id,
-          groupName: group.name,
-          weekStartDate: report.weekStartDate,
-          windows: report.windows,
-          responded: report.responded,
-          total: report.total,
-          topVibes: report.topVibes,
-          suppressedForPrivacy: report.suppressedForPrivacy,
-          showLockIn: true,
-        }),
-      );
+      // Same publisher, same job_run claim as the everyone-answered trigger, so
+      // whichever fires first wins and the other is a silent no-op.
+      await publishWeeklyBoard(ctx, ready, group, week, 'cutoff');
     },
   });
 

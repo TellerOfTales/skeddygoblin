@@ -36,6 +36,10 @@ export interface LeaderboardParams {
   suppressedForPrivacy: boolean;
   /** Organizer-only lock-in buttons. */
   showLockIn: boolean;
+  /** Shared library, by owner count only - never who owns what. */
+  games?: { name: string; ownerCount: number; price: string | null }[];
+  /** Why this posted, so the group knows whether more answers are coming. */
+  reason?: 'cutoff' | 'everyone-answered';
 }
 
 export function leaderboardView(params: LeaderboardParams): BaseMessageOptions {
@@ -62,6 +66,26 @@ export function leaderboardView(params: LeaderboardParams): BaseMessageOptions {
         })
         .join('\n'),
     );
+  }
+
+  // Owner counts, never owner names. "6 of you own this" is an aggregate;
+  // "Bob owns this" would be a raw disclosure, and this message is public.
+  if (params.games && params.games.length > 0) {
+    embed.addFields({
+      name: 'Games you all share',
+      value: params.games
+        .map(
+          (game) =>
+            `**${game.name}** — ${game.ownerCount} of you own it` +
+            (game.price ? ` · ${game.price}` : ''),
+        )
+        .join('\n'),
+    });
+  }
+
+  if (params.reason === 'everyone-answered') {
+    // Worth saying: the board is final, not a work in progress.
+    embed.addFields({ name: '\u200b', value: "That's everyone in — this is the full picture." });
   }
 
   const footerParts = [`${params.responded}/${params.total} answered`];

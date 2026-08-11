@@ -136,6 +136,12 @@ first run.
 
 ### 1.6 Turn the scheduler on last
 
+**Nothing posts to your channel until you do this.** The weekly prompt, the cutoff post and
+the Steam re-sync all run from the scheduler tick, so with `SCHEDULER_ENABLED=false` they
+never fire. (The one exception is the board posting early when the last member answers -
+that is triggered by the answer itself, not the tick, so it works either way. It still needs
+an announce channel: set one with `/setup channel:#somewhere`.)
+
 Once the manual flow works, set `SCHEDULER_ENABLED=true` and `TICK_INTERVAL_MS=60000`.
 To test without waiting until Monday, temporarily set the cutoff to a minute from now:
 

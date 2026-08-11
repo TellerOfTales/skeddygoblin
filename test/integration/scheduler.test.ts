@@ -12,6 +12,7 @@ import {
   isPromptDue,
   runWeeklyPrompt,
   commitUnfinishedDrafts,
+  isEveryoneAnswered,
 } from '../../src/services/weeklyCycleService.js';
 import { currentWeek, optOut, submit } from '../../src/services/responseService.js';
 import {
@@ -436,6 +437,74 @@ describe('unfinished drafts are banked at the cutoff', () => {
       });
       expect(response?.sessionsCommitted).toBe(1);
       expect(response?.status).toBe('submitted');
+    });
+  });
+});
+
+/**
+ * The board posts publicly at the cutoff OR when the last person answers,
+ * whichever comes first - and exactly once either way, because both triggers
+ * share one job_run claim.
+ */
+describe('posting the weekly board early', () => {
+  it('is complete once every member has answered', async () => {
+    await withRollback(async (ctx) => {
+      const { group, members } = await makeGroupWithMembers(ctx, 3);
+      const week = currentWeek(ctx, group.timezone);
+      const scope = { groupId: group.id, weekStartDate: week };
+
+      expect(await isEveryoneAnswered(ctx, group, week)).toBe(false);
+
+      await submit(ctx, {
+        userId: members[0]!.id,
+        ...scope,
+        sessionsCommitted: 1,
+        slots: [{ dayOfWeek: 2, window: 'evening' }],
+        vibes: [],
+      });
+      await submit(ctx, {
+        userId: members[1]!.id,
+        ...scope,
+        sessionsCommitted: 1,
+        slots: [{ dayOfWeek: 2, window: 'evening' }],
+        vibes: [],
+      });
+      expect(await isEveryoneAnswered(ctx, group, week)).toBe(false);
+
+      // Opting out counts: it is an answer, and the group is no longer waiting.
+      await optOut(ctx, { userId: members[2]!.id, ...scope });
+      expect(await isEveryoneAnswered(ctx, group, week)).toBe(true);
+    });
+  });
+
+  it('never treats a lone member as a complete group', async () => {
+    await withRollback(async (ctx) => {
+      const { group, members } = await makeGroupWithMembers(ctx, 1);
+      const week = currentWeek(ctx, group.timezone);
+
+      await submit(ctx, {
+        userId: members[0]!.id,
+        groupId: group.id,
+        weekStartDate: week,
+        sessionsCommitted: 1,
+        slots: [{ dayOfWeek: 2, window: 'evening' }],
+        vibes: [],
+      });
+
+      // Posting here would be useless and would publish the only respondent's
+      // picks as the aggregate.
+      expect(await isEveryoneAnswered(ctx, group, week)).toBe(false);
+    });
+  });
+
+  it('lets only one trigger post: the cutoff and the last answer share a claim', async () => {
+    await withRollback(async (ctx) => {
+      const { group } = await makeGroupWithMembers(ctx, 2);
+      const week = currentWeek(ctx, group.timezone);
+
+      // Whoever claims first posts; the other becomes a silent no-op.
+      expect(await claimCutoffPost(ctx, group, week)).toBe(true);
+      expect(await claimCutoffPost(ctx, group, week)).toBe(false);
     });
   });
 });

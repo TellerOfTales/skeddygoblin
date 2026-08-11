@@ -7,6 +7,7 @@
  */
 
 import {
+  MIN_AGGREGATE_HEADCOUNT,
   WEEKLY_PROMPT_HOUR,
   WEEKLY_PROMPT_MINUTE,
   DEFAULT_NUDGE_CUTOFF_DAY,
@@ -118,6 +119,25 @@ export async function runWeeklyPrompt(
  * Claims the cutoff post. The caller does the posting, because that is the one
  * part that genuinely needs a Discord channel.
  */
+/**
+ * Is every member accounted for this week?
+ *
+ * The floor matters: a "group" of one person who has answered is trivially
+ * complete, and posting a board for them would both be useless and expose the
+ * only respondent's picks as the aggregate.
+ */
+export async function isEveryoneAnswered(
+  ctx: AppContext,
+  group: GroupRecord,
+  week: IsoDate,
+): Promise<boolean> {
+  const counts = await weeklyResponses.countRespondersAggregate(ctx.db, {
+    groupId: group.id,
+    weekStartDate: week,
+  });
+  return counts.total >= MIN_AGGREGATE_HEADCOUNT && counts.responded >= counts.total;
+}
+
 export async function claimCutoffPost(
   ctx: AppContext,
   group: GroupRecord,

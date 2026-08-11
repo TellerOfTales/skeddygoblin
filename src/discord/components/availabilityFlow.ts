@@ -26,6 +26,7 @@ import { currentWeek, optOut, startOrResumeFlow, submit } from '../../services/r
 import * as draftService from '../../services/draftService.js';
 import * as personalDefaults from '../../services/personalDefaultsService.js';
 import { listMyGroups } from '../../services/membershipService.js';
+import { publishIfEveryoneAnswered } from '../weeklyBoard.js';
 import type { DraftRecord, GroupRecord } from '../../services/types.js';
 import {
   singlePromptView,
@@ -152,6 +153,10 @@ async function handleOptOut(
 
   await interaction.deferUpdate();
   await optOut(ctx, { userId: actor.user.id, groupId, weekStartDate: week });
+
+  // Opting out is an answer, so it can complete the week just as a submission
+  // can - waiting for a cutoff nobody is waiting for is only a delay.
+  void publishIfEveryoneAnswered(ctx, interaction.client, actor.group, week);
 
   // One tap, no follow-up questions. The single remaining button is the way
   // back in - without it, opting out in a DM is a dead end.
@@ -384,6 +389,11 @@ async function handleUseDefaults(
   await interaction.deferUpdate();
   const { draft, group } = await loadContext(ctx, interaction, parsed.args[0]);
 
+  // That answer may have been the last one outstanding. Fired and not awaited:
+  // the member has already been told their answer was saved, and they should
+  // not wait on a channel post - nor see one fail as their failure.
+  void publishIfEveryoneAnswered(ctx, interaction.client, group, draft.weekStartDate);
+
   const defaults = await personalDefaults.getDefaults(ctx, draft.userId);
   const updated =
     defaults.slots.length === 0
@@ -574,6 +584,11 @@ async function handleSubmit(
     vibes,
     draftId: draft.id,
   });
+
+  // That answer may have been the last one outstanding. Fired and not awaited:
+  // the member has already been told their answer was saved, and they should
+  // not wait on a channel post - nor see one fail as their failure.
+  void publishIfEveryoneAnswered(ctx, interaction.client, group, draft.weekStartDate);
 
   const defaults = await personalDefaults.getDefaults(ctx, draft.userId);
 
