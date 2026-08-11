@@ -132,3 +132,38 @@ export async function promoteFirstMemberToOrganizer(
     await memberships.setRole(ctx.db, userId, groupId, 'organizer');
   }
 }
+
+export interface MyGroup {
+  id: number;
+  name: string;
+}
+
+/**
+ * The servers this member belongs to, for the DM server picker.
+ *
+ * Self-scoped by construction: the only membership question that can be asked
+ * in this direction is "which groups am I in", never "who is in this group with
+ * their preferences".
+ *
+ * Returns null when the Discord account is unknown to us - someone who has
+ * DM'd the bot without ever having used it in a server. That is a different
+ * message from "you are in no groups", and conflating them would tell a
+ * stranger they had been removed from something.
+ */
+export async function listMyGroups(
+  ctx: AppContext,
+  discordUserId: string,
+): Promise<{ userId: number; groups: MyGroup[] } | null> {
+  const user = await users.findUserByDiscordId(ctx.db, discordUserId);
+  if (!user) return null;
+
+  const groupIds = await memberships.listGroupIdsForSelf(ctx.db, user.id);
+  const found: MyGroup[] = [];
+
+  for (const groupId of groupIds) {
+    const group = await groups.findGroupById(ctx.db, groupId);
+    if (group) found.push({ id: group.id, name: group.name });
+  }
+
+  return { userId: user.id, groups: found };
+}

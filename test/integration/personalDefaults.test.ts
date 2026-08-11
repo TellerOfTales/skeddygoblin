@@ -21,6 +21,7 @@ import {
   setAutoApply,
 } from '../../src/services/personalDefaultsService.js';
 import { currentWeek, submit } from '../../src/services/responseService.js';
+import { listMyGroups } from '../../src/services/membershipService.js';
 import { runWeeklyPrompt } from '../../src/services/weeklyCycleService.js';
 
 afterAll(closeTestPool);
@@ -192,6 +193,37 @@ describe('auto-apply', () => {
       });
       expect(response?.status).toBe('submitted');
       expect(response?.sessionsCommitted).toBe(2);
+    });
+  });
+});
+
+describe('the DM entry point', () => {
+  it('distinguishes an unknown account from a member of no servers', async () => {
+    await withRollback(async (ctx) => {
+      // Never seen: DM'd the bot without ever using it in a server. Telling
+      // this person "you are in no servers" would imply they had been removed
+      // from something.
+      expect(await listMyGroups(ctx, '999999999999999999')).toBeNull();
+
+      const group = await makeGroup(ctx);
+      const user = await makeMember(ctx, group);
+      const mine = await listMyGroups(ctx, user.discordId);
+      expect(mine?.groups.map((entry) => entry.name)).toEqual([group.name]);
+    });
+  });
+
+  it('lists every server the member belongs to, and only those', async () => {
+    await withRollback(async (ctx) => {
+      const mine1 = await makeGroup(ctx, { name: 'Mine One' });
+      const mine2 = await makeGroup(ctx, { name: 'Mine Two' });
+      const theirs = await makeGroup(ctx, { name: 'Not Mine' });
+
+      const user = await makeMember(ctx, mine1);
+      await memberships.ensureMembership(ctx.db, user.id, mine2.id);
+      await makeMember(ctx, theirs);
+
+      const mine = await listMyGroups(ctx, user.discordId);
+      expect(mine?.groups.map((entry) => entry.name).sort()).toEqual(['Mine One', 'Mine Two']);
     });
   });
 });

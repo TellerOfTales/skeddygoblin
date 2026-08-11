@@ -89,26 +89,32 @@ test buzz, because self-buzz is rejected by design.
 
 **Account A:**
 
-| Step | Do                                                          | Expect                                                     |
-| ---- | ----------------------------------------------------------- | ---------------------------------------------------------- |
-| 1    | `/setup timezone:Europe/London channel:#general country:GB` | Confirmation listing timezone, channel, cutoff, storefront |
-| 2    | `/availability`                                             | Ephemeral "Sent you a DM", then a DM with two buttons      |
-| 3    | In the DM, tap **Can't this week**                          | Buttons vanish, no follow-up questions, no red             |
-| 4    | `/availability` again → **I'm in**                          | ONE message: days, times, sessions, vibe, Submit           |
-| 5    | Pick Mon/Wed/Fri, then pick Evening                         | "2 windows on each of 3 days"; Submit becomes enabled      |
-| 6    | **Different times per day**                                 | Per-day pickers, pre-filled with Evening — nothing lost    |
-| 7    | Change Wednesday to Afternoon → **Done ✓**                  | Back on one message; the times select now reads "per day"  |
-| 8    | **Submit ✓** → `/availability` again                        | Resumes with every answer still ticked                     |
+| Step | Do                                                             | Expect                                                     |
+| ---- | -------------------------------------------------------------- | ---------------------------------------------------------- |
+| 1    | `/setup timezone:Europe/London channel:#general country:GB`    | Confirmation listing timezone, channel, cutoff, storefront |
+| 2    | `/availability`                                                | Ephemeral "Sent you a DM", then a DM with two buttons      |
+| 3    | In the DM, tap **Can't this week**                             | Buttons vanish, no follow-up questions, no red             |
+| 4    | `/availability` again → **I'm in**                             | ONE message: days, times, sessions, vibe, Submit           |
+| 5    | Pick Mon/Wed/Fri, then pick Evening                            | "2 windows on each of 3 days"; Submit becomes enabled      |
+| 6    | **Different times per day**                                    | Per-day pickers, pre-filled with Evening — nothing lost    |
+| 7    | Change Wednesday to Afternoon → **Done ✓**                     | Back on one message; the times select now reads "per day"  |
+| 8    | **Submit ✓**                                                   | Confirmation, plus Save-as-defaults and Auto-answer        |
+| 9    | **Save as my defaults** → DM Skeddy directly → `/availability` | Server picker (or straight in, if you are in only one)     |
 
 **Account B:** repeat steps 4–5 and Submit, with overlapping windows. (Skip 6–7 — one
 account exercising the per-day path is enough.)
+
+**Prefills worth checking once:** the next week, **Copy last week** should bring back exactly
+what you submitted — per day, not flattened. **Use my defaults** does the same from your
+saved template. Both render disabled when they have nothing to offer, which is correct on a
+first run.
 
 **Then:**
 
 | Step | Do                                                            | Expect                                                      |
 | ---- | ------------------------------------------------------------- | ----------------------------------------------------------- |
 | 9    | `/overlap`                                                    | Leaderboard. Slots only one of you can make must NOT appear |
-| 10   | `/status`                                                     | Both answered, plus leading windows, mood and shared games  |
+| 10b  | `/status`                                                     | Both answered, plus leading windows, mood and shared games  |
 | 11   | Third account (or have B not answer) → `/status` → **Buzz 1** | They get a DM; the button greys out                         |
 | 12   | Tap **Buzz 1** again                                          | "They've already been buzzed today"                         |
 | 13   | As organizer, `/overlap` → **Lock in …**                      | RSVP message with Yes/Maybe/No                              |

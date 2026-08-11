@@ -25,6 +25,7 @@ import { resolveMemberByDiscordId } from '../../services/membershipService.js';
 import { currentWeek, optOut, startOrResumeFlow, submit } from '../../services/responseService.js';
 import * as draftService from '../../services/draftService.js';
 import * as personalDefaults from '../../services/personalDefaultsService.js';
+import { listMyGroups } from '../../services/membershipService.js';
 import type { DraftRecord, GroupRecord } from '../../services/types.js';
 import {
   singlePromptView,
@@ -308,6 +309,41 @@ async function handlePerDay(
 }
 
 /**
+ * Starts or resumes the weekly flow ON the interaction already in hand.
+ *
+ * Used by the DM path, where there is nothing to DM the member - they are
+ * already in the DM - so the prompt replaces the reply rather than arriving as
+ * a separate message.
+ */
+export async function startFlowInPlace(
+  ctx: AppContext,
+  // Structural, not ChatInputCommandInteraction | ComponentInteraction: both
+  // callers can render, and this keeps the helper honest about needing nothing
+  // more than that.
+  interaction: {
+    user: { id: string };
+    editReply: (payload: ReturnType<typeof singlePromptView>) => Promise<unknown>;
+  },
+  groupId: number,
+): Promise<void> {
+  const actor = await resolveMemberByDiscordId(ctx, {
+    discordUserId: interaction.user.id,
+    groupId,
+  });
+  const week = currentWeek(ctx, actor.group.timezone);
+
+  const { draft } = await startOrResumeFlow(ctx, {
+    userId: actor.user.id,
+    groupId,
+    weekStartDate: week,
+  });
+
+  await interaction.editReply(
+    renderSinglePrompt(draft, actor.group, await prefillOffers(ctx, draft, actor.group)),
+  );
+}
+
+/**
  * Prefills the whole prompt from what this member said last week.
  *
  * Lands as per-day windows, because last week was a real week and rarely a
@@ -404,6 +440,48 @@ async function handleAutoApply(
   await interaction.editReply(
     submittedView({ ...summary, savedAsDefaults: current.slots.length > 0 }),
   );
+}
+
+/** DM server picker: answer for this one. */
+async function handlePickServer(
+  interaction: ComponentInteraction,
+  ctx: AppContext,
+  parsed: ParsedCustomId,
+): Promise<void> {
+  await interaction.deferUpdate();
+  await startFlowInPlace(ctx, interaction, fromBase36(parsed.args[0] ?? ''));
+}
+
+/** DM server picker: project the template onto every server at once. */
+async function handleApplyEverywhere(
+  interaction: ComponentInteraction,
+  ctx: AppContext,
+): Promise<void> {
+  await interaction.deferUpdate();
+
+  const mine = await listMyGroups(ctx, interaction.user.id);
+  if (!mine) return;
+
+  const outcome = await personalDefaults.applyToAllGroups(ctx, mine.userId);
+
+  const lines = [
+    outcome.applied.length > 0
+      ? `**Answered for ${outcome.applied.length} server${outcome.applied.length === 1 ? '' : 's'}:** ` +
+        outcome.applied.map((entry) => entry.groupName).join(', ')
+      : '**Nothing to apply.**',
+  ];
+
+  if (outcome.alreadyAnswered.length > 0) {
+    // Never silently replaced: an explicit answer beats a template, always.
+    lines.push(
+      '',
+      `Left alone because you had already answered: ${outcome.alreadyAnswered.join(', ')}`,
+    );
+  }
+
+  lines.push('', "_Windows apply as each server's own local time._");
+
+  await interaction.editReply({ content: lines.join('\n'), components: [] });
 }
 
 /** Row 2 of the single prompt: windows that apply to every chosen day. */
@@ -533,6 +611,10 @@ async function handle(
       return handleCopyLastWeek(interaction, ctx, parsed);
     case 'usedef':
       return handleUseDefaults(interaction, ctx, parsed);
+    case 'pick':
+      return handlePickServer(interaction, ctx, parsed);
+    case 'applyall':
+      return handleApplyEverywhere(interaction, ctx);
     case 'savedef':
       return handleSaveDefaults(interaction, ctx, parsed);
     case 'auto':
