@@ -89,3 +89,15 @@ export async function countMembers(db: Queryable, groupId: GroupId): Promise<num
   );
   return result.rows[0]?.count ?? 0;
 }
+
+/**
+ * The groups a member belongs to. Self-scoped, and the only direction this can
+ * be read: there is deliberately no "which groups does anyone belong to".
+ */
+export async function listGroupIdsForSelf(db: Queryable, selfUserId: UserId): Promise<GroupId[]> {
+  const result = await db.query<{ group_id: number }>(
+    'SELECT group_id FROM group_membership WHERE user_id = $1 ORDER BY group_id',
+    [selfUserId],
+  );
+  return result.rows.map((row) => row.group_id);
+}

@@ -138,6 +138,9 @@ describe('P2: repository export naming discipline', () => {
     'listDraftsForWeek',
     // Ids only - who has started, never what they picked.
     'listUserIdsWithProgress',
+    // Ids only - who asked to be answered for automatically. The template
+    // itself is read through getDefaultsForSelf, one user at a time.
+    'listAutoApplyUserIds',
     // aggregates - counts and scores only
     'rankWindowAggregate',
     'countSubmittedResponders',

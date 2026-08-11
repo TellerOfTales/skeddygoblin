@@ -209,6 +209,47 @@ export async function seedPerDayWindows(ctx: AppContext, draft: DraftRecord): Pr
   return drafts.saveDraftState(ctx.db, draft.id, { ...draft.state, windows });
 }
 
+/**
+ * Fills a draft from a set of slots - last week's answers, or a personal
+ * default. Always lands as PER-DAY windows, because a real week is rarely a
+ * clean cross product and flattening it would lose exactly the precision the
+ * member took the trouble to express.
+ */
+export async function prefillFromSlots(
+  ctx: AppContext,
+  draft: DraftRecord,
+  params: {
+    slots: readonly SlotRow[];
+    capacity?: number | undefined;
+    vibes?: readonly VibeTag[] | undefined;
+  },
+): Promise<DraftRecord> {
+  const windows: Record<string, Window[]> = {};
+  for (const slot of params.slots) {
+    if (!isDay(slot.dayOfWeek) || !isWindow(slot.window)) continue;
+    const key = String(slot.dayOfWeek);
+    const existing = windows[key] ?? [];
+    if (!existing.includes(slot.window)) existing.push(slot.window);
+    windows[key] = existing;
+  }
+
+  const days = Object.keys(windows)
+    .map(Number)
+    .filter(isDay)
+    .sort((a, b) => a - b);
+
+  return drafts.saveDraftState(ctx.db, draft.id, {
+    ...draft.state,
+    days,
+    windows,
+    // simpleWindows is now irrelevant - per-day always wins - but clearing it
+    // keeps the state honest rather than leaving a stale cross product behind.
+    simpleWindows: [],
+    ...(params.capacity !== undefined ? { capacity: params.capacity } : {}),
+    ...(params.vibes !== undefined ? { vibes: [...params.vibes] } : {}),
+  });
+}
+
 export async function setDays(
   ctx: AppContext,
   draft: DraftRecord,

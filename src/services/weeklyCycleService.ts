@@ -21,6 +21,7 @@ import * as drafts from '../db/repositories/drafts.js';
 import type { GroupRecord } from '../db/repositories/types.js';
 import type { Capacity } from '../domain/constants.js';
 import * as draftService from './draftService.js';
+import { autoApplyForGroup } from './personalDefaultsService.js';
 import type { AppContext } from './context.js';
 import { sendWeeklyPrompt } from './weeklyFlowService.js';
 import { submit } from './responseService.js';
@@ -80,7 +81,25 @@ export async function runWeeklyPrompt(
   );
   // The person who triggered this has already been DM'd by the command itself;
   // sending again would land two identical prompts seconds apart.
-  const pending = memberIds.filter((id) => !responded.has(id) && id !== options.excludeUserId);
+  let pending = memberIds.filter((id) => !responded.has(id) && id !== options.excludeUserId);
+
+  // Answer for anyone who asked to be answered for, then simply do not ask
+  // them. This is the only path that actually saves someone the two minutes -
+  // a template they still have to open and apply saves them nothing.
+  const autoAnswered = await autoApplyForGroup(ctx, {
+    groupId: group.id,
+    weekStartDate: week,
+    candidateUserIds: pending,
+  });
+  if (autoAnswered.length > 0) {
+    const answered = new Set(autoAnswered);
+    pending = pending.filter((id) => !answered.has(id));
+    ctx.logger.info('answered from personal defaults', {
+      groupId: group.id,
+      week,
+      count: autoAnswered.length,
+    });
+  }
   const recipients = await users.listUsersByIds(ctx.db, pending);
 
   let prompted = 0;
