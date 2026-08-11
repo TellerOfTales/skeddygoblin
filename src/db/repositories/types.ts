@@ -79,7 +79,19 @@ export interface SlotRow {
 /** The mutable state of an in-progress questionnaire. */
 export interface DraftState {
   days?: Day[];
-  /** day index (as a string key, because JSON) -> chosen windows */
+  /**
+   * Cross-product windows from the single prompt: these apply to EVERY chosen
+   * day. Ignored entirely once `windows` is non-empty.
+   */
+  simpleWindows?: Window[];
+  /**
+   * Per-day overrides. day index (as a string key, because JSON) -> windows.
+   *
+   * Non-empty means the member deliberately went into the per-day picker, so it
+   * WINS over simpleWindows and the single prompt disables its window select.
+   * Flattening someone's per-day work because they tapped a broad select would
+   * be indistinguishable from the bot losing their answers.
+   */
   windows?: Record<string, Window[]>;
   capacity?: number;
   vibes?: VibeTag[];

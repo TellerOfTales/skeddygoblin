@@ -191,89 +191,6 @@ export function windowPickerView(params: WindowPickerParams): InteractionUpdateO
   };
 }
 
-// ---------------------------------------------------------------------------
-// Stage C - capacity and vibe, on ONE message
-//
-// Splitting these across two messages would cost a round trip for no benefit,
-// and the whole flow is budgeted at under two minutes.
-// ---------------------------------------------------------------------------
-
-export interface CapacityVibeParams {
-  draftId: number;
-  groupId: number;
-  groupName: string;
-  timezone: string;
-  weekStartDate: IsoDate;
-  capacity: Capacity | undefined;
-  vibes: VibeTag[];
-  slotCount: number;
-  dayCount: number;
-}
-
-export function capacityVibeView(params: CapacityVibeParams): InteractionUpdateOptions {
-  const capacityRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    ...CAPACITY_OPTIONS.map((option) =>
-      new ButtonBuilder()
-        .setCustomId(encodeCustomId('av', 'cap', toBase36(params.draftId), String(option)))
-        .setLabel(CAPACITY_LABELS[option])
-        .setStyle(params.capacity === option ? ButtonStyle.Success : ButtonStyle.Secondary),
-    ),
-  );
-
-  const chosenVibes = new Set(params.vibes);
-  const vibeSelect = new StringSelectMenuBuilder()
-    .setCustomId(encodeCustomId('av', 'vibe', toBase36(params.draftId)))
-    .setPlaceholder(`What are you in the mood for? (up to ${MAX_VIBE_SELECTIONS})`)
-    .setMinValues(0)
-    .setMaxValues(MAX_VIBE_SELECTIONS)
-    .addOptions(
-      VIBE_TAGS.map((tag) =>
-        new StringSelectMenuOptionBuilder()
-          .setLabel(VIBE_LABELS[tag])
-          .setDescription(VIBE_DESCRIPTIONS[tag])
-          .setValue(tag)
-          .setDefault(chosenVibes.has(tag)),
-      ),
-    );
-
-  const navRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(encodeCustomId('av', 'page', toBase36(params.draftId), '0'))
-      .setLabel('◀ Back')
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId(encodeCustomId('av', 'submit', toBase36(params.draftId)))
-      .setLabel('Submit ✓')
-      .setStyle(ButtonStyle.Success)
-      // Capacity is the one genuinely required answer, so Submit stays inert
-      // until it is given rather than failing after the tap.
-      .setDisabled(params.capacity === undefined),
-    new ButtonBuilder()
-      .setCustomId(encodeCustomId('av', 'optout', toBase36(params.groupId)))
-      .setLabel("Can't this week")
-      .setStyle(ButtonStyle.Secondary),
-  );
-
-  return {
-    content: [
-      header(params.groupName, params.timezone, params.weekStartDate),
-      '',
-      `Step 3 of 3 — ${params.slotCount} windows across ${params.dayCount} ` +
-        `${params.dayCount === 1 ? 'day' : 'days'}.`,
-      'How many sessions can you actually make this week?',
-    ].join('\n'),
-    components: [
-      capacityRow,
-      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(vibeSelect),
-      navRow,
-    ],
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Terminal screens
-// ---------------------------------------------------------------------------
-
 export function submittedView(params: {
   groupName: string;
   weekStartDate: IsoDate;
@@ -329,5 +246,150 @@ export function optedOutView(params: {
       'Changed your mind? `/availability` reopens it any time.',
     ].join('\n'),
     components: [],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The single prompt - everything on one screen, Submit at the bottom
+// ---------------------------------------------------------------------------
+
+export interface SinglePromptParams {
+  draftId: number;
+  groupId: number;
+  groupName: string;
+  timezone: string;
+  weekStartDate: IsoDate;
+  selectedDays: Day[];
+  /** Cross-product windows: these apply to every selected day. */
+  simpleWindows: Window[];
+  /** Non-empty once the member has used the per-day picker. Then it wins. */
+  windowsByDay: Record<string, Window[]>;
+  capacity: Capacity | undefined;
+  vibes: VibeTag[];
+}
+
+/**
+ * One message, five rows, Submit visible from the first second.
+ *
+ * Discord allows five action rows and a select menu eats a whole row, so this
+ * is the entire budget: days, times, sessions, vibe, and a button row. That
+ * constraint is what makes rows 1 and 2 a CROSS PRODUCT - "Mon/Wed/Fri" plus
+ * "evenings" means evenings on all three - which also happens to be how most
+ * people think about their week.
+ *
+ * Per-day precision is not lost, just moved behind a button. Once the member
+ * has used it, `windowsByDay` wins and the row-2 select is disabled: leaving it
+ * live would let one careless tap silently flatten work they did deliberately.
+ */
+export function singlePromptView(params: SinglePromptParams): InteractionUpdateOptions {
+  const perDay = Object.values(params.windowsByDay).some((windows) => windows.length > 0);
+  const selectedDays = new Set(params.selectedDays);
+  const selectedWindows = new Set(params.simpleWindows);
+
+  const daySelect = new StringSelectMenuBuilder()
+    .setCustomId(encodeCustomId('av', 'days', toBase36(params.draftId)))
+    .setPlaceholder('Which days could you play?')
+    .setMinValues(0)
+    .setMaxValues(DAYS.length)
+    .addOptions(
+      DAYS.map((day) =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(DAY_LABELS[day])
+          .setValue(String(day))
+          .setDefault(selectedDays.has(day)),
+      ),
+    );
+
+  const windowSelect = new StringSelectMenuBuilder()
+    .setCustomId(encodeCustomId('av', 'simplewin', toBase36(params.draftId)))
+    .setPlaceholder(perDay ? 'Set per day — use the button below' : 'What times suit you?')
+    .setMinValues(0)
+    .setMaxValues(WINDOWS.length)
+    .setDisabled(perDay)
+    .addOptions(
+      WINDOWS.map((window) =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(WINDOW_LABELS[window])
+          .setEmoji(WINDOW_EMOJI[window])
+          .setValue(window)
+          .setDefault(!perDay && selectedWindows.has(window)),
+      ),
+    );
+
+  const capacitySelect = new StringSelectMenuBuilder()
+    .setCustomId(encodeCustomId('av', 'cap', toBase36(params.draftId)))
+    .setPlaceholder('How many sessions this week?')
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(
+      CAPACITY_OPTIONS.map((capacity) =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(CAPACITY_LABELS[capacity])
+          .setValue(String(capacity))
+          .setDefault(params.capacity === capacity),
+      ),
+    );
+
+  const vibeSelect = new StringSelectMenuBuilder()
+    .setCustomId(encodeCustomId('av', 'vibe', toBase36(params.draftId)))
+    .setPlaceholder('What are you in the mood for? (optional)')
+    .setMinValues(0)
+    .setMaxValues(MAX_VIBE_SELECTIONS)
+    .addOptions(
+      VIBE_TAGS.map((tag) =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(VIBE_LABELS[tag])
+          .setDescription(VIBE_DESCRIPTIONS[tag])
+          .setValue(tag)
+          .setDefault(params.vibes.includes(tag)),
+      ),
+    );
+
+  // Submit needs something to submit. Days alone are not availability, and
+  // windows alone do not say which days - both halves, or the per-day picker.
+  const hasAvailability =
+    perDay || (params.selectedDays.length > 0 && params.simpleWindows.length > 0);
+
+  const buttons = [
+    new ButtonBuilder()
+      .setCustomId(encodeCustomId('av', 'submit', toBase36(params.draftId)))
+      .setLabel('Submit ✓')
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(!hasAvailability),
+    new ButtonBuilder()
+      .setCustomId(encodeCustomId('av', 'perday', toBase36(params.draftId)))
+      .setLabel('Different times per day')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(params.selectedDays.length === 0),
+    new ButtonBuilder()
+      .setCustomId(encodeCustomId('av', 'optout', toBase36(params.groupId)))
+      .setLabel("Can't this week")
+      .setStyle(ButtonStyle.Secondary),
+  ];
+
+  const notes: string[] = [];
+  if (perDay) {
+    notes.push('Times are set per day. Use **Different times per day** to change them.');
+  } else if (params.selectedDays.length > 0 && params.simpleWindows.length > 0) {
+    notes.push(
+      `That's **${params.simpleWindows.length} window${params.simpleWindows.length === 1 ? '' : 's'}** ` +
+        `on each of **${params.selectedDays.length} day${params.selectedDays.length === 1 ? '' : 's'}**.`,
+    );
+  }
+
+  return {
+    content: [
+      header(params.groupName, params.timezone, params.weekStartDate),
+      '',
+      ...(notes.length > 0 ? [notes.join(' '), ''] : []),
+      '_Only the group totals are ever shown — never your individual picks._',
+    ].join('\n'),
+    components: [
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(daySelect),
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(windowSelect),
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(capacitySelect),
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(vibeSelect),
+      new ActionRowBuilder<ButtonBuilder>().addComponents(buttons),
+    ],
   };
 }

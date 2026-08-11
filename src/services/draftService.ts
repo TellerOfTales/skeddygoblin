@@ -91,14 +91,48 @@ export async function loadDraftContext(
 // Reading draft state (defensively - it is jsonb, so anything could be in it)
 // ---------------------------------------------------------------------------
 
+/** Selected days, plus any day carrying explicit per-day windows. */
+function daysToEmit(state: DraftState): Day[] {
+  const days = new Set<Day>(selectedDays(state));
+  for (const key of Object.keys(state.windows ?? {})) {
+    const day = Number(key);
+    if (isDay(day) && (state.windows?.[key]?.length ?? 0) > 0) days.add(day);
+  }
+  return [...days].sort((a, b) => a - b);
+}
+
 export function selectedDays(state: DraftState): Day[] {
   const days = (state.days ?? []).filter(isDay);
   return [...new Set(days)].sort((a, b) => a - b);
 }
 
+/** True once the member has set anything in the per-day picker. */
+export function hasPerDayWindows(state: DraftState): boolean {
+  return Object.values(state.windows ?? {}).some((windows) => windows.length > 0);
+}
+
+/** The cross-product windows from the single prompt, applied to every day. */
+export function simpleWindows(state: DraftState): Window[] {
+  return (state.simpleWindows ?? []).filter(isWindow);
+}
+
+/**
+ * What this member is actually available for on a given day.
+ *
+ * Per-day picks win outright when present; otherwise the single prompt's
+ * cross-product windows apply to every selected day. Resolving it here, once,
+ * is what keeps the precedence rule out of every caller.
+ */
 export function windowsForDay(state: DraftState, day: Day): Window[] {
-  const windows = state.windows?.[String(day)] ?? [];
-  return windows.filter(isWindow);
+  if (hasPerDayWindows(state)) {
+    return (state.windows?.[String(day)] ?? []).filter(isWindow);
+  }
+  return selectedDays(state).includes(day) ? simpleWindows(state) : [];
+}
+
+/** Per-day picks only, ignoring the cross product. For rendering the picker. */
+export function explicitWindowsForDay(state: DraftState, day: Day): Window[] {
+  return (state.windows?.[String(day)] ?? []).filter(isWindow);
 }
 
 /** Days with at least one window chosen. */
@@ -146,6 +180,35 @@ export function clampPage(state: DraftState, page: number): number {
  * Wednesday and re-selecting it later does not silently resurrect answers the
  * member thought they had removed.
  */
+/** Row 2 of the single prompt. A no-op on per-day state, which always wins. */
+export async function setSimpleWindows(
+  ctx: AppContext,
+  draft: DraftRecord,
+  windows: Window[],
+): Promise<DraftRecord> {
+  return drafts.saveDraftState(ctx.db, draft.id, {
+    ...draft.state,
+    simpleWindows: [...new Set(windows.filter(isWindow))],
+  });
+}
+
+/**
+ * Seeds the per-day picker from the cross product, so it opens showing what the
+ * member already said rather than blank. This is what makes the switch from the
+ * single prompt to per-day editing lossless - they are editing, not restarting.
+ */
+export async function seedPerDayWindows(ctx: AppContext, draft: DraftRecord): Promise<DraftRecord> {
+  if (hasPerDayWindows(draft.state)) return draft;
+
+  const seed = simpleWindows(draft.state);
+  if (seed.length === 0) return draft;
+
+  const windows: Record<string, Window[]> = {};
+  for (const day of selectedDays(draft.state)) windows[String(day)] = [...seed];
+
+  return drafts.saveDraftState(ctx.db, draft.id, { ...draft.state, windows });
+}
+
 export async function setDays(
   ctx: AppContext,
   draft: DraftRecord,
@@ -210,7 +273,11 @@ export function chosenVibes(state: DraftState): VibeTag[] {
  */
 export function toSlotRows(state: DraftState): SlotRow[] {
   const rows: SlotRow[] = [];
-  for (const day of selectedDays(state)) {
+  // Union rather than selectedDays alone: a per-day entry for a day missing
+  // from `days` would otherwise be silently dropped, and quietly losing
+  // someone's stated availability is the one failure mode worth being
+  // defensive about here.
+  for (const day of daysToEmit(state)) {
     for (const window of windowsForDay(state, day)) {
       rows.push({ dayOfWeek: day, window });
     }

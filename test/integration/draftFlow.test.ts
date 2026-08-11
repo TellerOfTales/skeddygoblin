@@ -256,3 +256,63 @@ describe('surviving a restart', () => {
     });
   });
 });
+
+/**
+ * The single prompt puts days and times on separate selects, so availability is
+ * their cross product - "Mon/Wed/Fri" plus "evenings" is evenings on all three.
+ * Per-day precision stays reachable, and once used it must win outright.
+ */
+describe('cross-product windows and the per-day override', () => {
+  it('applies the shared windows to every chosen day', async () => {
+    await withRollback(async (ctx) => {
+      const { draft } = await seedDraft(ctx);
+
+      let state = await draftService.setDays(ctx, draft, [0, 2, 4]);
+      state = await draftService.setSimpleWindows(ctx, state, ['evening', 'night']);
+
+      expect(draftService.toSlotRows(state.state)).toHaveLength(6);
+      expect(draftService.windowsForDay(state.state, 2)).toEqual(['evening', 'night']);
+      // A day nobody picked stays empty rather than inheriting the windows.
+      expect(draftService.windowsForDay(state.state, 5)).toEqual([]);
+    });
+  });
+
+  it('seeds the per-day picker from the cross product, losing nothing', async () => {
+    await withRollback(async (ctx) => {
+      const { draft } = await seedDraft(ctx);
+
+      let state = await draftService.setDays(ctx, draft, [0, 2]);
+      state = await draftService.setSimpleWindows(ctx, state, ['evening']);
+      state = await draftService.seedPerDayWindows(ctx, state);
+
+      // They are editing what they already said, not starting over.
+      expect(draftService.explicitWindowsForDay(state.state, 0)).toEqual(['evening']);
+      expect(draftService.explicitWindowsForDay(state.state, 2)).toEqual(['evening']);
+      expect(draftService.hasPerDayWindows(state.state)).toBe(true);
+    });
+  });
+
+  it('lets per-day windows win, and keeps them when the shared select changes', async () => {
+    await withRollback(async (ctx) => {
+      const { draft } = await seedDraft(ctx);
+
+      let state = await draftService.setDays(ctx, draft, [0, 2]);
+      state = await draftService.setSimpleWindows(ctx, state, ['evening']);
+      state = await draftService.seedPerDayWindows(ctx, state);
+      state = await draftService.setWindowsForDay(ctx, state, 2, ['afternoon']);
+
+      // Deliberate per-day work.
+      expect(draftService.windowsForDay(state.state, 0)).toEqual(['evening']);
+      expect(draftService.windowsForDay(state.state, 2)).toEqual(['afternoon']);
+
+      // The shared select is disabled in the UI, but the service is the
+      // authority: even if a stale message sends one, per-day still wins.
+      state = await draftService.setSimpleWindows(ctx, state, ['morning']);
+      expect(draftService.windowsForDay(state.state, 2)).toEqual(['afternoon']);
+      expect(draftService.toSlotRows(state.state)).toEqual([
+        { dayOfWeek: 0, window: 'evening' },
+        { dayOfWeek: 2, window: 'afternoon' },
+      ]);
+    });
+  });
+});

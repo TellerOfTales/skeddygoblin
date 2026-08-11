@@ -10,23 +10,14 @@
 import { describe, expect, it } from 'vitest';
 import { assertLegalMessage } from '../../src/discord/componentLimits.js';
 import {
-  capacityVibeView,
   dayPickerView,
   noWindowsChosenView,
   optedOutView,
+  singlePromptView,
   submittedView,
   windowPickerView,
 } from '../../src/discord/views/availability.view.js';
-import {
-  DAYS,
-  DAYS_PER_PAGE,
-  MAX_VIBE_SELECTIONS,
-  VIBE_TAGS,
-  WINDOWS,
-  type Day,
-  type VibeTag,
-  type Window,
-} from '../../src/domain/constants.js';
+import { DAYS, DAYS_PER_PAGE, WINDOWS, type Day, type Window } from '../../src/domain/constants.js';
 import { parseCustomId } from '../../src/discord/customId.js';
 
 const BASE = {
@@ -42,8 +33,18 @@ function maximalWindows(): Record<string, Window[]> {
   return Object.fromEntries(DAYS.map((day) => [String(day), [...WINDOWS]]));
 }
 
+interface RawComponent {
+  type: number;
+  custom_id?: string;
+  label?: string;
+  placeholder?: string;
+  disabled?: boolean;
+  max_values?: number;
+  options?: Array<{ value: string; label?: string; default?: boolean }>;
+}
+
 interface RawRow {
-  components: Array<{ type: number; custom_id?: string; options?: unknown[]; max_values?: number }>;
+  components: RawComponent[];
 }
 
 function rows(view: { components?: readonly unknown[] | undefined }): RawRow[] {
@@ -196,70 +197,6 @@ describe('windowPickerView', () => {
   });
 });
 
-describe('capacityVibeView', () => {
-  const params = {
-    ...BASE,
-    capacity: undefined,
-    vibes: [] as VibeTag[],
-    slotCount: 12,
-    dayCount: 4,
-  };
-
-  it('is legal with every vibe selected and a maximal draft id', () => {
-    const view = capacityVibeView({
-      ...params,
-      draftId: Number.MAX_SAFE_INTEGER,
-      capacity: 4,
-      vibes: [...VIBE_TAGS].slice(0, MAX_VIBE_SELECTIONS),
-    });
-    expect(() => assertLegalMessage(view, 'capacityVibe')).not.toThrow();
-  });
-
-  it('fits capacity, vibe and navigation into three rows', () => {
-    const parsed = rows(capacityVibeView(params));
-    expect(parsed).toHaveLength(3);
-    expect(parsed[0]!.components).toHaveLength(4); // 1 / 2 / 3 / 4+
-    expect(parsed[1]!.components[0]!.type).toBe(3); // vibe select
-  });
-
-  /**
-   * Capacity is the one genuinely required answer. Disabling Submit until it is
-   * given beats letting the tap fail.
-   */
-  it('disables Submit until a capacity is chosen, then enables it', () => {
-    const before = rows(capacityVibeView(params)).at(-1)!;
-    const after = rows(capacityVibeView({ ...params, capacity: 2 })).at(-1)!;
-
-    const submitOf = (row: RawRow) =>
-      row.components.find(
-        (component) => parseCustomId(component.custom_id!).action === 'submit',
-      ) as { disabled?: boolean };
-
-    expect(submitOf(before).disabled).toBe(true);
-    expect(submitOf(after).disabled).toBeFalsy();
-  });
-
-  it('shows the chosen capacity as the only highlighted button', () => {
-    const capacityRow = rows(capacityVibeView({ ...params, capacity: 3 }))[0]!;
-    const highlighted = capacityRow.components.filter(
-      (component) => (component as { style?: number }).style === 3, // ButtonStyle.Success
-    );
-    expect(highlighted).toHaveLength(1);
-  });
-
-  it('caps vibe selection at the curated maximum', () => {
-    const select = rows(capacityVibeView(params))[1]!.components[0]!;
-    expect(select.options).toHaveLength(VIBE_TAGS.length);
-    expect(select.max_values).toBe(MAX_VIBE_SELECTIONS);
-  });
-
-  it('keeps the escape hatch reachable at the last step', () => {
-    const nav = rows(capacityVibeView(params)).at(-1)!;
-    const actions = nav.components.map((component) => parseCustomId(component.custom_id!).action);
-    expect(actions).toContain('optout');
-  });
-});
-
 describe('terminal views', () => {
   it('the submitted view reassures about privacy and strips components', () => {
     const view = submittedView({
@@ -291,5 +228,104 @@ describe('terminal views', () => {
       windowsByDay: {},
     });
     expect(() => assertLegalMessage(view, 'noWindowsChosen')).not.toThrow();
+  });
+});
+
+describe('singlePromptView', () => {
+  const base = {
+    draftId: 42,
+    groupId: 7,
+    groupName: 'The Basement',
+    timezone: 'Europe/London',
+    weekStartDate: '2026-08-10' as const,
+    selectedDays: [] as Day[],
+    simpleWindows: [] as Window[],
+    windowsByDay: {},
+    capacity: undefined,
+    vibes: [],
+  };
+
+  it('fits Discord: five rows, everything on one message', () => {
+    assertLegalMessage(
+      singlePromptView({
+        ...base,
+        selectedDays: [0, 1, 2, 3, 4, 5, 6],
+        simpleWindows: [...WINDOWS],
+        capacity: 4,
+        vibes: ['Co-op', 'Action', 'Strategy'],
+      }),
+    );
+    expect(rows(singlePromptView(base))).toHaveLength(5);
+  });
+
+  it('puts Submit at the bottom, disabled until there is something to submit', () => {
+    const empty = rows(singlePromptView(base)).at(-1)!.components[0]!;
+    expect(empty.label).toBe('Submit ✓');
+    expect(empty.disabled).toBe(true);
+
+    // Days alone are not availability, and windows alone do not say which days.
+    const daysOnly = rows(singlePromptView({ ...base, selectedDays: [2] })).at(-1)!.components[0]!;
+    expect(daysOnly.disabled).toBe(true);
+
+    const both = rows(
+      singlePromptView({ ...base, selectedDays: [2], simpleWindows: ['evening'] }),
+    ).at(-1)!.components[0]!;
+    expect(both.disabled).toBe(false);
+  });
+
+  it('re-renders every selection as selected, so the bot never looks like it ate an answer', () => {
+    const view = singlePromptView({
+      ...base,
+      selectedDays: [2, 4],
+      simpleWindows: ['evening'],
+      capacity: 2,
+      vibes: ['Co-op'],
+    });
+    const parsed = rows(view);
+
+    const defaults = (row: number) =>
+      parsed[row]!.components[0]!.options!.filter((option) => option.default).map(
+        (option) => option.value,
+      );
+
+    expect(defaults(0)).toEqual(['2', '4']);
+    expect(defaults(1)).toEqual(['evening']);
+    expect(defaults(2)).toEqual(['2']);
+    expect(defaults(3)).toEqual(['Co-op']);
+  });
+
+  /**
+   * The precedence rule. Once someone has set windows per day, one careless tap
+   * on the broad select must not be able to flatten that back to a cross
+   * product - which would be indistinguishable from losing their answers.
+   */
+  it('disables the shared window select once per-day windows exist', () => {
+    const view = singlePromptView({
+      ...base,
+      selectedDays: [2, 4],
+      simpleWindows: ['evening'],
+      windowsByDay: { '2': ['evening'], '4': ['afternoon'] },
+    });
+    const windowSelect = rows(view)[1]!.components[0]!;
+
+    expect(windowSelect.disabled).toBe(true);
+    expect(windowSelect.placeholder).toContain('per day');
+    // ...and it shows nothing selected, rather than a misleading subset.
+    expect(windowSelect.options!.every((option) => !option.default)).toBe(true);
+  });
+
+  it('offers per-day times only once there are days to apply them to', () => {
+    const withoutDays = rows(singlePromptView(base)).at(-1)!.components[1]!;
+    expect(withoutDays.label).toBe('Different times per day');
+    expect(withoutDays.disabled).toBe(true);
+
+    const withDays = rows(singlePromptView({ ...base, selectedDays: [2] })).at(-1)!.components[1]!;
+    expect(withDays.disabled).toBe(false);
+  });
+
+  it('always leaves the escape hatch available', () => {
+    const escape = rows(singlePromptView(base)).at(-1)!.components[2]!;
+    expect(escape.label).toBe("Can't this week");
+    expect(escape.disabled).toBeFalsy();
   });
 });

@@ -26,7 +26,7 @@ import { currentWeek, optOut, startOrResumeFlow, submit } from '../../services/r
 import * as draftService from '../../services/draftService.js';
 import type { DraftRecord, GroupRecord } from '../../services/types.js';
 import {
-  capacityVibeView,
+  singlePromptView,
   dayPickerView,
   noWindowsChosenView,
   optedOutView,
@@ -51,6 +51,31 @@ function renderWindowPage(
     days: draftService.selectedDays(draft.state),
     windowsByDay: draft.state.windows ?? {},
     page,
+  });
+}
+
+/**
+ * The default screen: everything on one message, Submit at the bottom.
+ *
+ * The staged day-picker still exists and is still reachable, but it is no
+ * longer where the flow starts - it is what the "Different times per day"
+ * button opens for people who need per-day precision.
+ */
+function renderSinglePrompt(
+  draft: DraftRecord,
+  group: GroupRecord,
+): ReturnType<typeof singlePromptView> {
+  return singlePromptView({
+    draftId: draft.id,
+    groupId: group.id,
+    groupName: group.name,
+    timezone: group.timezone,
+    weekStartDate: draft.weekStartDate,
+    selectedDays: draftService.selectedDays(draft.state),
+    simpleWindows: draftService.simpleWindows(draft.state),
+    windowsByDay: draft.state.windows ?? {},
+    capacity: draftService.chosenCapacity(draft.state),
+    vibes: draftService.chosenVibes(draft.state),
   });
 }
 
@@ -125,7 +150,7 @@ async function handleOptIn(
     weekStartDate: week,
   });
 
-  await interaction.editReply(renderDayPicker(draft, actor.group));
+  await interaction.editReply(renderSinglePrompt(draft, actor.group));
 }
 
 // ---------------------------------------------------------------------------
@@ -145,7 +170,7 @@ async function handleDaysSelected(
   const days = interaction.values.map(Number).filter(isDay) as Day[];
   const updated = await draftService.setDays(ctx, draft, days);
 
-  await interaction.editReply(renderWindowPage(updated, group, 0));
+  await interaction.editReply(renderSinglePrompt(updated, group));
 }
 
 async function handleWindowsSelected(
@@ -230,43 +255,60 @@ async function handleDone(
     return;
   }
 
-  await interaction.editReply(renderCapacityVibe(draft, group));
+  await interaction.editReply(renderSinglePrompt(draft, group));
+}
+
+/** Opens the per-day picker, seeded so nothing the member already said is lost. */
+async function handlePerDay(
+  interaction: ComponentInteraction,
+  ctx: AppContext,
+  parsed: ParsedCustomId,
+): Promise<void> {
+  await interaction.deferUpdate();
+  const { draft, group } = await loadContext(ctx, interaction, parsed.args[0]);
+  const seeded = await draftService.seedPerDayWindows(ctx, draft);
+
+  await interaction.editReply(renderWindowPage(seeded, group, 0));
+}
+
+/** Row 2 of the single prompt: windows that apply to every chosen day. */
+async function handleSimpleWindows(
+  interaction: ComponentInteraction,
+  ctx: AppContext,
+  parsed: ParsedCustomId,
+): Promise<void> {
+  if (!interaction.isStringSelectMenu()) throw new DomainError('INVALID_INPUT');
+
+  await interaction.deferUpdate();
+  const { draft, group } = await loadContext(ctx, interaction, parsed.args[0]);
+
+  const windows = interaction.values.filter(isWindow) as Window[];
+  const updated = await draftService.setSimpleWindows(ctx, draft, windows);
+
+  await interaction.editReply(renderSinglePrompt(updated, group));
 }
 
 // ---------------------------------------------------------------------------
-// Stage C - capacity, vibe, submit
+// Capacity, vibe, submit
 // ---------------------------------------------------------------------------
-
-function renderCapacityVibe(
-  draft: DraftRecord,
-  group: GroupRecord,
-): ReturnType<typeof capacityVibeView> {
-  return capacityVibeView({
-    draftId: draft.id,
-    groupId: group.id,
-    groupName: group.name,
-    timezone: group.timezone,
-    weekStartDate: draft.weekStartDate,
-    capacity: draftService.chosenCapacity(draft.state),
-    vibes: draftService.chosenVibes(draft.state),
-    slotCount: draftService.totalSlotCount(draft.state),
-    dayCount: draftService.daysWithWindows(draft.state).length,
-  });
-}
 
 async function handleCapacity(
   interaction: ComponentInteraction,
   ctx: AppContext,
   parsed: ParsedCustomId,
 ): Promise<void> {
-  const capacity = Number(parsed.args[1]);
+  // A select in the single prompt, a button in the older staged view: accept
+  // both so a message already sitting in someone's DM keeps working.
+  const capacity = interaction.isStringSelectMenu()
+    ? Number(interaction.values[0])
+    : Number(parsed.args[1]);
   if (!isCapacity(capacity)) throw new DomainError('INVALID_INPUT');
 
   await interaction.deferUpdate();
   const { draft, group } = await loadContext(ctx, interaction, parsed.args[0]);
   const updated = await draftService.setCapacity(ctx, draft, capacity);
 
-  await interaction.editReply(renderCapacityVibe(updated, group));
+  await interaction.editReply(renderSinglePrompt(updated, group));
 }
 
 async function handleVibe(
@@ -280,7 +322,7 @@ async function handleVibe(
   const { draft, group } = await loadContext(ctx, interaction, parsed.args[0]);
   const updated = await draftService.setVibes(ctx, draft, interaction.values as VibeTag[]);
 
-  await interaction.editReply(renderCapacityVibe(updated, group));
+  await interaction.editReply(renderSinglePrompt(updated, group));
 }
 
 async function handleSubmit(
@@ -293,9 +335,9 @@ async function handleSubmit(
 
   const capacity = draftService.chosenCapacity(draft.state);
   if (capacity === undefined) {
-    // Should be unreachable - Submit renders disabled without a capacity - but
-    // the service is the authority, not the button state.
-    await interaction.editReply(renderCapacityVibe(draft, group));
+    // Should be unreachable - Submit renders disabled without availability -
+    // but the service is the authority, not the button state.
+    await interaction.editReply(renderSinglePrompt(draft, group));
     return;
   }
 
@@ -338,6 +380,10 @@ async function handle(
       return handleOptOut(interaction, ctx, parsed.args[0]);
     case 'in':
       return handleOptIn(interaction, ctx, parsed.args[0]);
+    case 'perday':
+      return handlePerDay(interaction, ctx, parsed);
+    case 'simplewin':
+      return handleSimpleWindows(interaction, ctx, parsed);
     case 'days':
       return handleDaysSelected(interaction, ctx, parsed);
     case 'win':

@@ -33,8 +33,11 @@ what this step is for.**
    whatever you like; members never see it.
 2. **Bot** tab → **Reset Token** → copy it. This is `DISCORD_TOKEN`. It is shown once.
 3. **General Information** tab → copy **Application ID**. This is `DISCORD_CLIENT_ID`.
-4. **Bot** tab → leave every Privileged Gateway Intent **OFF**. The bot deliberately needs
-   none of them; if you find yourself enabling one, something has gone wrong.
+4. **Bot** tab → turn **SERVER MEMBERS INTENT** on. This is the one privileged intent the
+   bot needs: without it, it cannot see who is in a server, so one person running
+   `/availability` cannot pull the rest of the group in. Leave the other two off.
+   Discord refuses the connection outright if a bot requests an intent that is not
+   enabled, so getting this wrong fails loudly at login rather than quietly later.
 
 ### 1.2 Invite it to a test server
 
@@ -74,8 +77,10 @@ You should see `discord client ready`. If config is wrong the process exits with
 every problem at once rather than one at a time.
 
 > Re-run `npm run register` whenever you change a command's name, description or options.
-> Guild commands propagate instantly; global ones take up to an hour, which is why this
-> project does not use them.
+> It registers globally (so the bot works in every server it is invited to) and, when
+> `DISCORD_GUILD_ID` is set, also to that one guild. Global commands take up to an hour to
+> appear in a new server; the guild copy appears instantly, which is why you want it set
+> on your development server.
 
 ### 1.4 Walk the flow
 
@@ -89,20 +94,21 @@ test buzz, because self-buzz is rejected by design.
 | 1    | `/setup timezone:Europe/London channel:#general country:GB` | Confirmation listing timezone, channel, cutoff, storefront |
 | 2    | `/availability`                                             | Ephemeral "Sent you a DM", then a DM with two buttons      |
 | 3    | In the DM, tap **Can't this week**                          | Buttons vanish, no follow-up questions, no red             |
-| 4    | `/availability` again → **I'm in**                          | Day picker                                                 |
-| 5    | Pick Mon/Wed/Fri                                            | Window pickers, one select per day                         |
-| 6    | Pick windows for Monday → **Copy Mon to all**               | All three days now show the same windows, preselected      |
-| 7    | **Done ✓** → capacity → vibe → **Submit**                   | Summary saying individual answers stay private             |
-| 8    | `/availability` again                                       | Resumes with your answers still ticked                     |
+| 4    | `/availability` again → **I'm in**                          | ONE message: days, times, sessions, vibe, Submit           |
+| 5    | Pick Mon/Wed/Fri, then pick Evening                         | "2 windows on each of 3 days"; Submit becomes enabled      |
+| 6    | **Different times per day**                                 | Per-day pickers, pre-filled with Evening — nothing lost    |
+| 7    | Change Wednesday to Afternoon → **Done ✓**                  | Back on one message; the times select now reads "per day"  |
+| 8    | **Submit ✓** → `/availability` again                        | Resumes with every answer still ticked                     |
 
-**Account B:** repeat steps 4–7 with overlapping windows.
+**Account B:** repeat steps 4–5 and Submit, with overlapping windows. (Skip 6–7 — one
+account exercising the per-day path is enough.)
 
 **Then:**
 
 | Step | Do                                                            | Expect                                                      |
 | ---- | ------------------------------------------------------------- | ----------------------------------------------------------- |
 | 9    | `/overlap`                                                    | Leaderboard. Slots only one of you can make must NOT appear |
-| 10   | `/status`                                                     | Both accounts listed as answered, no Buzz buttons           |
+| 10   | `/status`                                                     | Both answered, plus leading windows, mood and shared games  |
 | 11   | Third account (or have B not answer) → `/status` → **Buzz 1** | They get a DM; the button greys out                         |
 | 12   | Tap **Buzz 1** again                                          | "They've already been buzzed today"                         |
 | 13   | As organizer, `/overlap` → **Lock in …**                      | RSVP message with Yes/Maybe/No                              |
@@ -117,8 +123,10 @@ test buzz, because self-buzz is rejected by design.
   defers immediately, so if you see this, check the logs for a slow query.
 - **A button does nothing.** Look for `no handler for namespace` or `malformed custom_id`
   in the logs.
-- **Commands do not appear.** You did not run `npm run register`, or `DISCORD_GUILD_ID` is
-  a different server.
+- **Commands do not appear.** In your development server: you did not run
+  `npm run register`, or `DISCORD_GUILD_ID` is a different server. In any OTHER server:
+  global registration takes up to an hour to propagate — wait, then restart your Discord
+  client, which caches the command list aggressively.
 
 ### 1.6 Turn the scheduler on last
 

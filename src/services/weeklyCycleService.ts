@@ -18,8 +18,9 @@ import * as memberships from '../db/repositories/memberships.js';
 import * as users from '../db/repositories/users.js';
 import * as weeklyResponses from '../db/repositories/weeklyResponses.js';
 import * as drafts from '../db/repositories/drafts.js';
-import type { DraftState, GroupRecord, SlotRow } from '../db/repositories/types.js';
-import type { Capacity, Day } from '../domain/constants.js';
+import type { GroupRecord } from '../db/repositories/types.js';
+import type { Capacity } from '../domain/constants.js';
+import * as draftService from './draftService.js';
 import type { AppContext } from './context.js';
 import { sendWeeklyPrompt } from './weeklyFlowService.js';
 import { submit } from './responseService.js';
@@ -171,7 +172,10 @@ export async function commitUnfinishedDrafts(
   let skipped = 0;
 
   for (const draft of pending) {
-    const slots = draftSlots(draft.state);
+    // toSlotRows applies the same precedence the flow does - per-day windows
+    // when present, otherwise days x simpleWindows. Reading state.windows
+    // directly here would silently skip everyone who used the single prompt.
+    const slots = draftService.toSlotRows(draft.state);
 
     // Nothing to bank. An empty draft is someone who opened the DM and closed
     // it, which is not an answer and must not be recorded as one.
@@ -203,15 +207,4 @@ export async function commitUnfinishedDrafts(
     ctx.logger.info('auto-committed unfinished drafts', { groupId: group.id, week, committed });
   }
   return { committed, skipped };
-}
-
-/** The draft's window picks, flattened into the rows submit() expects. */
-function draftSlots(state: DraftState): SlotRow[] {
-  const slots: SlotRow[] = [];
-  for (const [day, windows] of Object.entries(state.windows ?? {})) {
-    const dayOfWeek = Number(day);
-    if (!Number.isInteger(dayOfWeek)) continue;
-    for (const window of windows) slots.push({ dayOfWeek: dayOfWeek as Day, window });
-  }
-  return slots;
 }
