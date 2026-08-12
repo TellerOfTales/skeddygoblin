@@ -29,8 +29,10 @@ what this step is for.**
 
 ### 1.1 Create the application
 
-1. Go to <https://discord.com/developers/applications> → **New Application**. Name it
-   whatever you like; members never see it.
+1. Go to <https://discord.com/developers/applications> → **New Application**. **The name
+   you give it here is the bot's name in Discord** — it shows in the member list, in the
+   slash-command picker and on every DM it sends. Call it `Skeddy Goblin` unless you want
+   something else. It can be changed later under General Information.
 2. **Bot** tab → **Reset Token** → copy it. This is `DISCORD_TOKEN`. It is shown once.
 3. **General Information** tab → copy **Application ID**. This is `DISCORD_CLIENT_ID`.
 4. **Bot** tab → turn **SERVER MEMBERS INTENT** on. This is the one privileged intent the
@@ -42,6 +44,11 @@ what this step is for.**
 ### 1.2 Invite it to a test server
 
 Make a throwaway server first — do not test in the real one.
+
+> **The install link is the only way in.** Self-built bots never appear in Discord's Apps
+> search — that directory lists only apps accepted into App Discovery (verified, 75+
+> servers). Searching for yours there will always come up empty. Keep this URL: it is how
+> you and anyone else add the bot to a server.
 
 **Installation** tab → **Install Link** → _Discord Provided Link_, with scopes
 `bot` and `applications.commands`, and permissions:
