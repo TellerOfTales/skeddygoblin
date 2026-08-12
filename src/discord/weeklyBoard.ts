@@ -18,6 +18,7 @@ import { buildOverlapReport } from '../services/overlapService.js';
 import { countUnlinkedMembers, suggestGamesPage } from '../services/gameService.js';
 import { claimCutoffPost, isEveryoneAnswered } from '../services/weeklyCycleService.js';
 import { formatPrice } from '../domain/gameMatching.js';
+import { VIBE_LABELS } from '../domain/constants.js';
 import { leaderboardView } from './views/leaderboard.view.js';
 import type { AppContext } from '../services/context.js';
 import type { GroupRecord } from '../services/types.js';
@@ -33,6 +34,7 @@ async function sharedGames(
       name: game.name,
       ownerCount: game.ownerCount,
       price: formatPrice(game.priceCents, game.currency, { usdMinorUnits: game.priceCentsUsd }),
+      matchedVibes: game.matchedVibes.map((tag) => VIBE_LABELS[tag]),
     }));
   } catch (error) {
     ctx.logger.debug('no games for the weekly board', { error });

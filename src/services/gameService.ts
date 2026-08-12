@@ -6,9 +6,9 @@
  * aggregate; "Bob owns this" is a raw disclosure about Bob's library.
  */
 
-import { GAMES_PAGE_SIZE, MIN_AGGREGATE_HEADCOUNT } from '../domain/constants.js';
+import { GAMES_PAGE_SIZE, MIN_AGGREGATE_HEADCOUNT, type VibeTag } from '../domain/constants.js';
 import { DomainError } from '../domain/errors.js';
-import { vibeScore } from '../domain/gameMatching.js';
+import { matchedVibes, vibeScore } from '../domain/gameMatching.js';
 import { searchStore } from '../steam/clients.js';
 import * as gameVotes from '../db/repositories/gameVotes.js';
 import * as steam from '../db/repositories/steam.js';
@@ -21,6 +21,8 @@ import type { AppContext } from './context.js';
 export interface SuggestedGame extends SharedGame {
   /** 0-1: the share of the week's vibe picks this game satisfies. */
   vibeFit: number;
+  /** Which of the week's vibes it satisfies, so the pick can explain itself. */
+  matchedVibes: VibeTag[];
 }
 
 /**
@@ -94,7 +96,11 @@ export async function suggestGames(
   const weekVibes = await vibes.countVibesAggregate(ctx.db, scope);
 
   return shared
-    .map((game) => ({ ...game, vibeFit: vibeScore(game, weekVibes) }))
+    .map((game) => ({
+      ...game,
+      vibeFit: vibeScore(game, weekVibes),
+      matchedVibes: matchedVibes(game, weekVibes),
+    }))
     .filter((game) => game.vibeFit > 0)
     .sort(
       (a, b) =>

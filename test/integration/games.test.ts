@@ -420,3 +420,73 @@ describe('weekly library re-sync', () => {
     });
   });
 });
+
+/**
+ * Suggestions are shared games filtered by the week's mood, and they say which
+ * vibes they matched. A ranked list nobody can check is one you have to take on
+ * trust; "matches Co-op, Survival" is one you can argue with.
+ */
+describe('suggestions explain themselves', () => {
+  it("only offers games that match at least one of the week's vibes", async () => {
+    await withRollback(async (ctx) => {
+      const group = await makeGroup(ctx);
+      const week = currentWeek(ctx, group.timezone);
+      const members = [await makeMember(ctx, group), await makeMember(ctx, group)];
+
+      await steam.upsertAppMeta(ctx.db, {
+        appId: 5001,
+        name: 'Co-op Survival Thing',
+        categories: ['Online Co-op', 'Multi-player'],
+        genres: ['Survival'],
+        multiplayer: true,
+        priceCents: 1999,
+        currency: 'GBP',
+        priceCentsUsd: 2499,
+        priceCountry: 'GB',
+        storeUrl: 'https://store.steampowered.com/app/5001',
+      });
+      await steam.upsertAppMeta(ctx.db, {
+        appId: 5002,
+        name: 'Pure Racing Sim',
+        categories: ['Multi-player'],
+        genres: ['Racing'],
+        multiplayer: true,
+        priceCents: 2999,
+        currency: 'GBP',
+        priceCentsUsd: 3499,
+        priceCountry: 'GB',
+        storeUrl: 'https://store.steampowered.com/app/5002',
+      });
+
+      const owned = [
+        { appId: 5001, gameName: 'Co-op Survival Thing', multiplayer: true },
+        { appId: 5002, gameName: 'Pure Racing Sim', multiplayer: true },
+      ];
+      for (const member of members) {
+        await steam.replaceLibraryForSelf(ctx.db, member.id, owned);
+      }
+
+      // The group asked for co-op and survival. Nobody asked for racing.
+      for (const member of members) {
+        await submit(ctx, {
+          userId: member.id,
+          groupId: group.id,
+          weekStartDate: week,
+          sessionsCommitted: 1,
+          slots: [{ dayOfWeek: 2, window: 'evening' }],
+          vibes: ['Co-op', 'Survival'],
+        });
+      }
+
+      const games = await suggestGames(ctx, { groupId: group.id, weekStartDate: week });
+      const names = games.map((game) => game.name);
+
+      expect(names).toContain('Co-op Survival Thing');
+      expect(names).not.toContain('Pure Racing Sim');
+
+      const match = games.find((game) => game.name === 'Co-op Survival Thing')!;
+      expect(match.matchedVibes.sort()).toEqual(['Co-op', 'Survival']);
+      expect(match.vibeFit).toBe(1);
+    });
+  });
+});

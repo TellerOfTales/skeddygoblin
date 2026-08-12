@@ -37,7 +37,13 @@ export interface LeaderboardParams {
   /** Organizer-only lock-in buttons. */
   showLockIn: boolean;
   /** Shared library, by owner count only - never who owns what. */
-  games?: { name: string; ownerCount: number; price: string | null }[];
+  games?: {
+    name: string;
+    ownerCount: number;
+    price: string | null;
+    /** Which of the week's vibes it matched, so the pick explains itself. */
+    matchedVibes?: string[];
+  }[];
   /** Why this posted, so the group knows whether more answers are coming. */
   reason?: 'cutoff' | 'everyone-answered';
   /** Counts only - the board never names who has not linked Steam. */
@@ -73,14 +79,24 @@ export function leaderboardView(params: LeaderboardParams): BaseMessageOptions {
   // Owner counts, never owner names. "6 of you own this" is an aggregate;
   // "Bob owns this" would be a raw disclosure, and this message is public.
   if (params.games && params.games.length > 0) {
+    // Named for the mood, because that is what picked them: only shared games
+    // (two or more owners) that match at least one of this week's vibes get
+    // here, ranked by the share of those vibes they satisfy.
+    const moodNames = params.topVibes.map((vibe) => VIBE_LABELS[vibe.tag].toLowerCase());
     embed.addFields({
-      name: 'Games you all share',
+      name: moodNames.length > 0 ? `Games that fit ${moodNames.join(', ')}` : 'Games you all share',
       value: params.games
-        .map(
-          (game) =>
+        .map((game) => {
+          const why =
+            game.matchedVibes && game.matchedVibes.length > 0
+              ? ` · matches ${game.matchedVibes.join(', ')}`
+              : '';
+          return (
             `**${game.name}** — ${game.ownerCount} of you own it` +
-            (game.price ? ` · ${game.price}` : ''),
-        )
+            (game.price ? ` · ${game.price}` : '') +
+            why
+          );
+        })
         .join('\n'),
     });
   }

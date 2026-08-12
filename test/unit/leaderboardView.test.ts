@@ -43,6 +43,30 @@ describe('leaderboardView', () => {
     );
   });
 
+  it('names the section for the mood that picked the games', () => {
+    const view = leaderboardView({
+      ...BASE,
+      topVibes: [
+        { tag: 'Co-op', count: 3 },
+        { tag: 'Survival', count: 2 },
+      ],
+      games: [
+        {
+          name: 'Valheim',
+          ownerCount: 3,
+          price: '£16.19',
+          matchedVibes: ['Co-op', 'Survival'],
+        },
+      ],
+    });
+    const rendered = text(view);
+
+    // Suggestions are shared games filtered by the week's vibes, and the board
+    // says so - a ranked list nobody can check is one you take on trust.
+    expect(rendered).toContain('Games that fit co-op, survival');
+    expect(rendered).toContain('matches Co-op, Survival');
+  });
+
   it('shows games by owner count and price, never by owner', () => {
     const view = leaderboardView({
       ...BASE,

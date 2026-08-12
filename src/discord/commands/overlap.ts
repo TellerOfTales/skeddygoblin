@@ -5,6 +5,7 @@ import { currentWeek } from '../../services/responseService.js';
 import { buildOverlapReport } from '../../services/overlapService.js';
 import { countUnlinkedMembers, suggestGamesPage } from '../../services/gameService.js';
 import { formatPrice } from '../../domain/gameMatching.js';
+import { VIBE_LABELS } from '../../domain/constants.js';
 import { leaderboardView } from '../views/leaderboard.view.js';
 
 export const data = new SlashCommandBuilder()
@@ -46,6 +47,7 @@ export async function execute(
       name: game.name,
       ownerCount: game.ownerCount,
       price: formatPrice(game.priceCents, game.currency, { usdMinorUnits: game.priceCentsUsd }),
+      matchedVibes: game.matchedVibes.map((tag) => VIBE_LABELS[tag]),
     }));
   } catch (error) {
     ctx.logger.debug('no games for the overlap board', { error });

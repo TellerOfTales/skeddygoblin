@@ -89,6 +89,21 @@ export function matchesVibe(game: GameFacts, vibe: VibeTag): boolean {
  * Returns 0 when it suits none of them, so callers can drop it entirely, and 1
  * when nobody expressed a preference - no opinion is not the same as no match.
  */
+/**
+ * Which of the week's vibes this game actually satisfies.
+ *
+ * Same predicate as vibeScore, surfaced as a list so a suggestion can SHOW its
+ * reason. "Valheim — matches Co-op, Survival" is a suggestion someone can
+ * agree or disagree with; an unexplained ranked list is one they have to take
+ * on trust.
+ */
+export function matchedVibes(
+  game: GameFacts,
+  weightedVibes: ReadonlyArray<{ tag: VibeTag; count: number }>,
+): VibeTag[] {
+  return weightedVibes.filter((vibe) => matchesVibe(game, vibe.tag)).map((vibe) => vibe.tag);
+}
+
 export function vibeScore(
   game: GameFacts,
   weightedVibes: ReadonlyArray<{ tag: VibeTag; count: number }>,
