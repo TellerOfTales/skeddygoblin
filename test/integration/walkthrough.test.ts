@@ -7,7 +7,7 @@
 
 import { describe, it } from 'vitest';
 import { withRollback } from '../helpers/db.js';
-import { makeGroup, makeMember } from '../helpers/fixtures.js';
+import { makeGroup, makeMember, upsertGame } from '../helpers/fixtures.js';
 import * as groups from '../../src/db/repositories/groups.js';
 import * as steam from '../../src/db/repositories/steam.js';
 import { currentWeek, optOut, submit } from '../../src/services/responseService.js';
@@ -137,7 +137,7 @@ describe('walkthrough', () => {
       }
 
       say('\n--- Steam: shared library ---');
-      await steam.upsertAppMeta(ctx.db, {
+      await upsertGame(ctx, {
         appId: 730,
         name: 'Counter-Strike 2',
         categories: ['Online PvP', 'Multi-player'],
@@ -149,7 +149,7 @@ describe('walkthrough', () => {
         priceCountry: 'GB',
         storeUrl: 'https://store.steampowered.com/app/730',
       });
-      await steam.upsertAppMeta(ctx.db, {
+      await upsertGame(ctx, {
         appId: 1145360,
         name: 'Hades',
         categories: ['Single-player'],
@@ -161,7 +161,7 @@ describe('walkthrough', () => {
         priceCountry: 'GB',
         storeUrl: 'https://store.steampowered.com/app/1145360',
       });
-      await steam.upsertAppMeta(ctx.db, {
+      await upsertGame(ctx, {
         appId: 413150,
         name: 'Stardew Valley',
         categories: ['Online Co-op', 'Multi-player'],
@@ -173,7 +173,7 @@ describe('walkthrough', () => {
         priceCountry: 'GB',
         storeUrl: 'https://store.steampowered.com/app/413150',
       });
-      await steam.upsertAppMeta(ctx.db, {
+      await upsertGame(ctx, {
         appId: 892970,
         name: 'Valheim',
         categories: ['Online Co-op', 'Multi-player'],

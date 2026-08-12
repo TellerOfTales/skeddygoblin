@@ -1,7 +1,8 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { closeTestPool, withRollback } from '../helpers/db.js';
-import { makeGroup, makeMember } from '../helpers/fixtures.js';
+import { makeGroup, makeMember, upsertGame } from '../helpers/fixtures.js';
 import * as steam from '../../src/db/repositories/steam.js';
+import * as groups from '../../src/db/repositories/groups.js';
 import { currentWeek, optOut, submit } from '../../src/services/responseService.js';
 import {
   listGameOptions,
@@ -41,7 +42,7 @@ async function seedLibraries(
     });
   }
 
-  await steam.upsertAppMeta(ctx.db, {
+  await upsertGame(ctx, {
     appId: CS2.appId,
     name: CS2.gameName,
     categories: ['Online PvP', 'Multi-player'],
@@ -53,7 +54,7 @@ async function seedLibraries(
     priceCountry: 'US',
     storeUrl: 'https://store.steampowered.com/app/730',
   });
-  await steam.upsertAppMeta(ctx.db, {
+  await upsertGame(ctx, {
     appId: STARDEW.appId,
     name: STARDEW.gameName,
     categories: ['Online Co-op', 'Multi-player'],
@@ -363,7 +364,7 @@ describe('library sync bookkeeping', () => {
       const needed = await steam.listAppIdsNeedingMeta(ctx.db, { limit: 50, staleAfterDays: 30 });
       expect(needed.sort()).toEqual([CS2.appId, STARDEW.appId].sort());
 
-      await steam.upsertAppMeta(ctx.db, {
+      await upsertGame(ctx, {
         appId: CS2.appId,
         name: 'Counter-Strike 2',
         categories: ['Online PvP'],
@@ -436,7 +437,7 @@ describe('suggestions explain themselves', () => {
       const week = currentWeek(ctx, group.timezone);
       const members = [await makeMember(ctx, group), await makeMember(ctx, group)];
 
-      await steam.upsertAppMeta(ctx.db, {
+      await upsertGame(ctx, {
         appId: 5001,
         name: 'Co-op Survival Thing',
         categories: ['Online Co-op', 'Multi-player'],
@@ -448,7 +449,7 @@ describe('suggestions explain themselves', () => {
         priceCountry: 'GB',
         storeUrl: 'https://store.steampowered.com/app/5001',
       });
-      await steam.upsertAppMeta(ctx.db, {
+      await upsertGame(ctx, {
         appId: 5002,
         name: 'Pure Racing Sim',
         categories: ['Multi-player'],
@@ -506,7 +507,7 @@ describe('shared games that should never have been hidden', () => {
       const week = currentWeek(ctx, group.timezone);
       const members = [await makeMember(ctx, group), await makeMember(ctx, group)];
 
-      await steam.upsertAppMeta(ctx.db, {
+      await upsertGame(ctx, {
         appId: 6001,
         name: 'Fits The Mood',
         categories: ['Online Co-op', 'Multi-player'],
@@ -521,7 +522,7 @@ describe('shared games that should never have been hidden', () => {
       // Everyone owns it, everyone can play it, but Steam's official genres
       // simply do not carry the word the group used. That is a vocabulary gap,
       // not a wrong game.
-      await steam.upsertAppMeta(ctx.db, {
+      await upsertGame(ctx, {
         appId: 6002,
         name: 'Shared But Unlabelled',
         categories: ['Online Co-op', 'Multi-player'],
@@ -577,6 +578,115 @@ describe('shared games that should never have been hidden', () => {
       // one the group actually shares - and a game with no metadata cannot be
       // suggested at all.
       expect(queue[0]).toBe(3_241_660);
+    });
+  });
+});
+
+/**
+ * The bug: steam_app_meta was keyed by app_id alone and carried a price, and
+ * the refresh picked ONE country per tick - the lowest group id. Two groups in
+ * two countries therefore shared one price, and whichever signed up first won.
+ * Silently, and rendered in the other group's currency symbol.
+ */
+describe('prices are per storefront', () => {
+  it('gives two groups in two countries their own real prices', async () => {
+    await withRollback(async (ctx) => {
+      const uk = await groups.updateGroupSettings(
+        ctx.db,
+        (await makeGroup(ctx, { name: 'UK' })).id,
+        { countryCode: 'GB' },
+      );
+      const us = await groups.updateGroupSettings(
+        ctx.db,
+        (await makeGroup(ctx, { name: 'US' })).id,
+        { countryCode: 'US' },
+      );
+
+      await steam.upsertAppMeta(ctx.db, {
+        appId: 7001,
+        name: 'Regional Pricing Ltd',
+        categories: ['Online Co-op', 'Multi-player'],
+        genres: ['Action'],
+        multiplayer: true,
+        priceCents: null,
+        currency: null,
+        priceCountry: null,
+        priceCentsUsd: null,
+        storeUrl: 'https://store.steampowered.com/app/7001',
+      });
+      // Steam prices regionally: these are two different real numbers, not a
+      // conversion of one another.
+      await steam.upsertAppPrice(ctx.db, {
+        appId: 7001,
+        countryCode: 'GB',
+        priceCents: 1699,
+        currency: 'GBP',
+      });
+      await steam.upsertAppPrice(ctx.db, {
+        appId: 7001,
+        countryCode: 'US',
+        priceCents: 2499,
+        currency: 'USD',
+      });
+
+      for (const group of [uk, us]) {
+        const week = currentWeek(ctx, group.timezone);
+        const members = [await makeMember(ctx, group), await makeMember(ctx, group)];
+        for (const member of members) {
+          await steam.replaceLibraryForSelf(ctx.db, member.id, [
+            { appId: 7001, gameName: 'Regional Pricing Ltd', multiplayer: true },
+          ]);
+          await submit(ctx, {
+            userId: member.id,
+            groupId: group.id,
+            weekStartDate: week,
+            sessionsCommitted: 1,
+            slots: [{ dayOfWeek: 2, window: 'evening' }],
+            vibes: [],
+          });
+        }
+      }
+
+      const [ukGame] = await suggestGames(ctx, {
+        groupId: uk.id,
+        weekStartDate: currentWeek(ctx, uk.timezone),
+      });
+      const [usGame] = await suggestGames(ctx, {
+        groupId: us.id,
+        weekStartDate: currentWeek(ctx, us.timezone),
+      });
+
+      expect(ukGame?.priceCents).toBe(1699);
+      expect(ukGame?.currency).toBe('GBP');
+      expect(usGame?.priceCents).toBe(2499);
+      expect(usGame?.currency).toBe('USD');
+
+      // Both carry the same USD reference, whatever their own storefront.
+      expect(ukGame?.priceCentsUsd).toBe(2499);
+      expect(usGame?.priceCentsUsd).toBe(2499);
+    });
+  });
+
+  it('works every storefront in use, not just one per pass', async () => {
+    await withRollback(async (ctx) => {
+      for (const [name, country] of [
+        ['One', 'GB'],
+        ['Two', 'DE'],
+        ['Three', 'GB'],
+      ] as const) {
+        await groups.updateGroupSettings(ctx.db, (await makeGroup(ctx, { name })).id, {
+          countryCode: country,
+        });
+      }
+
+      const countries = await steam.listActiveCountryCodesAggregate(ctx.db);
+
+      // Deduplicated, and US always present because it is the reference price
+      // shown in brackets even to groups not on it.
+      expect(countries).toContain('GB');
+      expect(countries).toContain('DE');
+      expect(countries).toContain('US');
+      expect(new Set(countries).size).toBe(countries.length);
     });
   });
 });

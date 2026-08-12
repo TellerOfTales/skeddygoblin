@@ -7,7 +7,7 @@ import { DomainError } from '../domain/errors.js';
 import * as steam from '../db/repositories/steam.js';
 import * as users from '../db/repositories/users.js';
 import {
-  fetchAppMetaWithUsd,
+  fetchAppMeta,
   fetchOwnedGames,
   sleep,
   SteamProfilePrivateError,
@@ -17,8 +17,24 @@ import { buildAuthUrl } from '../steam/openid.js';
 import type { UserId } from '../db/repositories/types.js';
 import type { AppContext } from './context.js';
 
-/** How long app metadata is trusted before being refetched. */
-const APP_META_TTL_DAYS = 30;
+/** How long app facts are trusted. Genres and categories rarely change. */
+const APP_META_TTL_DAYS = 90;
+
+/** Prices change with sales, so they go stale much faster than facts do. */
+const APP_PRICE_TTL_DAYS = 3;
+
+/**
+ * The global per-tick request budget for the Steam Store endpoint.
+ *
+ * Steam allows roughly 200 requests per 5 minutes PER KEY, and there is one key
+ * for every server this bot is in. At a 60s tick that is ~40 requests of
+ * headroom; 30 leaves room for the interactive path (/propose does a live store
+ * search) to not be starved by background work.
+ */
+const STORE_REQUESTS_PER_TICK = 30;
+
+/** Of that budget, how much goes to facts before prices get the remainder. */
+const STORE_FACTS_PER_TICK = 15;
 
 export function steamEnabled(): boolean {
   return optionalSteamConfig() !== undefined;
@@ -109,27 +125,42 @@ export async function syncLibrary(
  * requests per 5 minutes, and there is no deadline here that justifies risking
  * a block.
  */
+/**
+ * Fills in the COUNTRY-INDEPENDENT facts about an app: name, genres,
+ * categories, multiplayer. Fetched once per app, ever.
+ *
+ * Splitting facts from prices is what makes this survive 200 servers. Facts do
+ * not vary by storefront, so a hundred groups owning the same game cost one
+ * request between them - where the old country-flavoured refresh re-fetched
+ * everything for whichever country won the tick.
+ */
 export async function refreshAppMetadata(
   ctx: AppContext,
-  options: { limit?: number; countryCode?: string } = {},
+  options: { limit?: number } = {},
 ): Promise<number> {
   requireSteam();
 
-  // Which storefront the cached price describes. Defaults to US, which is also
-  // what makes the bracketed reference price free in that case.
-  const countryCode = (options.countryCode ?? 'US').toUpperCase();
-
   const appIds = await steam.listAppIdsNeedingMeta(ctx.db, {
-    limit: options.limit ?? 40,
+    limit: options.limit ?? STORE_FACTS_PER_TICK,
     staleAfterDays: APP_META_TTL_DAYS,
   });
 
   let fetched = 0;
   for (const appId of appIds) {
     try {
-      const meta = await fetchAppMetaWithUsd(appId, countryCode);
+      // 'US' is arbitrary here - we keep only the facts, and discard the price
+      // it happens to come with. Prices are refreshPrices' job.
+      const meta = await fetchAppMeta(appId, { countryCode: 'US' });
       if (meta) {
         await steam.upsertAppMeta(ctx.db, meta);
+        // Not wasted: the response already carried the US price, and US is
+        // always needed as the reference figure shown in brackets.
+        await steam.upsertAppPrice(ctx.db, {
+          appId,
+          countryCode: 'US',
+          priceCents: meta.priceCents,
+          currency: meta.currency,
+        });
         fetched++;
       }
     } catch (error) {
@@ -141,6 +172,85 @@ export async function refreshAppMetadata(
 
   if (fetched > 0) ctx.logger.info('app metadata refreshed', { fetched });
   return fetched;
+}
+
+/**
+ * Refreshes prices for one storefront, within a budget.
+ *
+ * The budget is the whole point. The Steam Store endpoint allows roughly 200
+ * requests per 5 minutes PER KEY, and there is one key for every server this
+ * bot is in. Without a cap, one group with a huge library starves everyone
+ * else; with one, the work is bounded and the worst case is a price that says
+ * nothing yet rather than a bot that has been blocked.
+ */
+export async function refreshPrices(
+  ctx: AppContext,
+  params: { countryCode: string; budget: number },
+): Promise<number> {
+  requireSteam();
+  if (params.budget <= 0) return 0;
+
+  const appIds = await steam.listAppIdsNeedingPrice(ctx.db, {
+    countryCode: params.countryCode,
+    limit: params.budget,
+    staleAfterDays: APP_PRICE_TTL_DAYS,
+  });
+
+  let fetched = 0;
+  for (const appId of appIds) {
+    try {
+      const meta = await fetchAppMeta(appId, { countryCode: params.countryCode });
+      // A null row is still written: it records that we asked and Steam had
+      // nothing, which stops this app being retried every single tick forever.
+      await steam.upsertAppPrice(ctx.db, {
+        appId,
+        countryCode: params.countryCode,
+        priceCents: meta?.priceCents ?? null,
+        currency: meta?.currency ?? null,
+      });
+      fetched++;
+    } catch (error) {
+      ctx.logger.warn('price fetch failed', { appId, country: params.countryCode, error });
+    }
+    await sleep(STORE_REQUEST_DELAY_MS);
+  }
+
+  return fetched;
+}
+
+/**
+ * One pass of Steam catalogue work, spending a fixed global budget.
+ *
+ * Facts first, because an app with no facts cannot be suggested at all - its
+ * multiplayer flag defaults to false. Whatever is left is split evenly between
+ * the storefronts actually in use, so no country can starve another however
+ * many groups are on it.
+ */
+export async function refreshSteamCatalogue(ctx: AppContext): Promise<void> {
+  const facts = await refreshAppMetadata(ctx);
+
+  const remaining = STORE_REQUESTS_PER_TICK - facts;
+  if (remaining <= 0) return;
+
+  const countries = await steam.listActiveCountryCodesAggregate(ctx.db);
+  if (countries.length === 0) return;
+
+  // Fair share, floor at 1 so a long country list still makes progress rather
+  // than every share rounding to zero.
+  const perCountry = Math.max(1, Math.floor(remaining / countries.length));
+
+  let spent = 0;
+  for (const countryCode of countries) {
+    if (spent >= remaining) break;
+    spent += await refreshPrices(ctx, {
+      countryCode,
+      budget: Math.min(perCountry, remaining - spent),
+    });
+  }
+
+  if (spent > 0) {
+    ctx.logger.info('prices refreshed', { countries: countries.length, fetched: spent });
+  }
 }
 
 export interface GroupSyncOutcome {

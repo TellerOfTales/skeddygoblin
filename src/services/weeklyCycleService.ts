@@ -25,6 +25,7 @@ import * as draftService from './draftService.js';
 import { autoApplyForGroup } from './personalDefaultsService.js';
 import type { AppContext } from './context.js';
 import { sendWeeklyPrompt } from './weeklyFlowService.js';
+import { drainQueue } from './sendQueue.js';
 import { submit } from './responseService.js';
 
 /** Is it time to open the week for this group? */
@@ -103,16 +104,22 @@ export async function runWeeklyPrompt(
   }
   const recipients = await users.listUsersByIds(ctx.db, pending);
 
-  let prompted = 0;
-  let undeliverable = 0;
-  for (const user of recipients) {
-    const result = await sendWeeklyPrompt(ctx, { user, group, weekStartDate: week });
-    if (result.ok) prompted++;
-    else undeliverable++;
-  }
+  // Through the shared queue rather than a sequential loop. Bounded
+  // concurrency because DM channel creation is a global rate-limit bucket that
+  // every group is spending from at once - a per-group loop cannot see that.
+  const { sent, failed } = await drainQueue(
+    recipients,
+    async (user) => (await sendWeeklyPrompt(ctx, { user, group, weekStartDate: week })).ok,
+    { logger: ctx.logger },
+  );
 
-  ctx.logger.info('weekly prompt sent', { groupId: group.id, week, prompted, undeliverable });
-  return { ran: true, prompted, undeliverable };
+  ctx.logger.info('weekly prompt sent', {
+    groupId: group.id,
+    week,
+    prompted: sent,
+    undeliverable: failed,
+  });
+  return { ran: true, prompted: sent, undeliverable: failed };
 }
 
 /**

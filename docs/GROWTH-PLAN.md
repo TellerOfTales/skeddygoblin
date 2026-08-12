@@ -123,22 +123,28 @@ Once, not weekly — a bot that nags a dead server is a bot that gets kicked.
 and roughly half of organic bot discovery. Each needs the install page from 1.4 to exist.
 This is manual and takes an afternoon.
 
-## Phase 3 — Survive the scale (October–November)
+## Phase 3 — Survive the scale (DONE, August)
 
-Four things in the current code are correct at 1 server and wrong at 200. They are not
-theoretical; two of them silently corrupt data.
+Four things were correct at 1 server and wrong at 200. Three are fixed; the fourth was never
+a problem. Kept here as the record of what was wrong and why.
 
-**3.1 `primaryCountryCode` is a real bug.** `refreshAppMetadata` fetches prices for _one_
+**3.1 ~~`primaryCountryCode`~~ — FIXED.** `refreshAppMetadata` fetches prices for _one_
 country per tick, chosen as the lowest group id. At 200 servers every group sees the
 storefront of whichever server signed up first. `steam_app_meta` needs to become
 `(app_id, country_code)` keyed — the migration comment already predicts this.
 
-**3.2 The Steam key is a shared bottleneck.** One key, ~200 Store requests per 5 minutes,
+**3.2 ~~Steam key bottleneck~~ — FIXED** by splitting country-independent facts from
+per-country prices, so a game is described once globally and priced only for storefronts
+actually in use, under a fixed global per-tick budget.
+
+Original diagnosis: One key, ~200 Store requests per 5 minutes,
 across every server. At 40 apps/tick the metadata backlog for 200 servers never drains.
 Needs: per-app-id global dedupe (already there), a cap on how much any one guild can consume
 per cycle, and a fallback that degrades to "no price yet" rather than starving.
 
-**3.3 The scheduler is single-instance by design.** Fine to 200 — `job_run`'s primary key
+**3.3 ~~DM fan-out~~ — FIXED** with a global bounded-concurrency queue (`services/sendQueue.ts`).
+
+Original diagnosis: Fine to 200 — `job_run`'s primary key
 makes correctness independent of instance count — but the weekly DM fan-out becomes the
 constraint. DM channel creation is a heavy rate-limit bucket. Needs a global send queue with
 concurrency limits rather than per-group loops.

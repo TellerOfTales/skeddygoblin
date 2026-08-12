@@ -174,6 +174,8 @@ export async function listSharedGamesAggregate(
     minOwners: number;
     multiplayerOnly?: boolean;
     limit?: number;
+    /** The group's storefront. Prices come from it; USD comes alongside. */
+    countryCode?: string;
   },
 ): Promise<SharedGame[]> {
   const result = await db.query<{
@@ -195,10 +197,10 @@ export async function listSharedGamesAggregate(
        COALESCE(m.categories, '{}') AS categories,
        COALESCE(m.genres, '{}') AS genres,
        COALESCE(m.multiplayer, bool_or(c.multiplayer)) AS multiplayer,
-       m.price_cents,
-       m.currency,
-       m.price_cents_usd,
-       m.price_country,
+       local.price_cents,
+       local.currency,
+       usd.price_cents AS price_cents_usd,
+       $6::text        AS price_country,
        m.store_url,
        COUNT(*)::bigint AS owner_count
      FROM steam_library_cache c
@@ -208,10 +210,14 @@ export async function listSharedGamesAggregate(
       AND r.week_start_date = $2
       AND r.status = 'submitted'
      LEFT JOIN steam_app_meta m ON m.app_id = c.app_id
+     -- Priced per storefront: one row per (app, country), so two groups in two
+     -- countries see two different real prices rather than sharing one.
+     LEFT JOIN steam_app_price local ON local.app_id = c.app_id AND local.country_code = $6
+     LEFT JOIN steam_app_price usd   ON usd.app_id   = c.app_id AND usd.country_code = 'US'
      WHERE ($4::boolean IS NOT TRUE)
         OR COALESCE(m.multiplayer, c.multiplayer) IS TRUE
      GROUP BY m.app_id, c.app_id, m.name, m.categories, m.genres, m.multiplayer,
-              m.price_cents, m.currency, m.price_cents_usd, m.price_country, m.store_url
+              local.price_cents, local.currency, usd.price_cents, m.store_url
      HAVING COUNT(*) >= $3
      ORDER BY owner_count DESC, name ASC
      LIMIT $5`,
@@ -221,6 +227,7 @@ export async function listSharedGamesAggregate(
       params.minOwners,
       params.multiplayerOnly ?? false,
       params.limit ?? 50,
+      (params.countryCode ?? 'US').toUpperCase(),
     ],
   );
 
@@ -316,4 +323,65 @@ export async function countUnlinkedMembersAggregate(
   );
   const row = result.rows[0];
   return { unlinked: Number(row?.unlinked ?? 0), total: Number(row?.total ?? 0) };
+}
+
+// ---------------------------------------------------------------------------
+// Per-country prices
+// ---------------------------------------------------------------------------
+
+export async function upsertAppPrice(
+  db: Queryable,
+  params: {
+    appId: number;
+    countryCode: string;
+    priceCents: number | null;
+    currency: string | null;
+  },
+): Promise<void> {
+  await db.query(
+    `INSERT INTO steam_app_price (app_id, country_code, price_cents, currency)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (app_id, country_code) DO UPDATE SET
+       price_cents = EXCLUDED.price_cents,
+       currency    = EXCLUDED.currency,
+       fetched_at  = now()`,
+    [params.appId, params.countryCode.toUpperCase(), params.priceCents, params.currency],
+  );
+}
+
+/**
+ * Apps that have facts but no fresh price for this storefront.
+ *
+ * Ordered by how many people across ALL groups own it, so a budget too small to
+ * cover everything spends itself on the games most likely to be suggested.
+ */
+export async function listAppIdsNeedingPrice(
+  db: Queryable,
+  params: { countryCode: string; limit: number; staleAfterDays: number },
+): Promise<number[]> {
+  const result = await db.query<{ app_id: number }>(
+    `SELECT m.app_id
+       FROM steam_app_meta m
+       JOIN steam_library_cache c ON c.app_id = m.app_id
+       LEFT JOIN steam_app_price p
+         ON p.app_id = m.app_id AND p.country_code = $1
+      WHERE p.app_id IS NULL
+         OR p.fetched_at < now() - ($3 || ' days')::interval
+      GROUP BY m.app_id
+      ORDER BY COUNT(*) DESC, m.app_id DESC
+      LIMIT $2`,
+    [params.countryCode.toUpperCase(), params.limit, String(params.staleAfterDays)],
+  );
+  return result.rows.map((row) => row.app_id);
+}
+
+/** Distinct storefronts actually in use. The unit of per-country work. */
+export async function listActiveCountryCodesAggregate(db: Queryable): Promise<string[]> {
+  const result = await db.query<{ country_code: string }>(
+    `SELECT DISTINCT country_code FROM app_group ORDER BY country_code`,
+  );
+  const codes = result.rows.map((row) => row.country_code);
+  // US is always worked, because it is the reference price shown in brackets
+  // everywhere - even for groups that are not on it.
+  return codes.includes('US') ? codes : [...codes, 'US'];
 }

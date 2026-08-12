@@ -12,6 +12,7 @@ import { matchedVibes, vibeScore } from '../domain/gameMatching.js';
 import { searchStore } from '../steam/clients.js';
 import * as gameVotes from '../db/repositories/gameVotes.js';
 import * as steam from '../db/repositories/steam.js';
+import * as groups from '../db/repositories/groups.js';
 import * as vibes from '../db/repositories/vibes.js';
 import type { SharedGame } from '../db/repositories/steam.js';
 import type { GroupId, UserId } from '../db/repositories/types.js';
@@ -87,8 +88,13 @@ export async function suggestGames(
 ): Promise<SuggestedGame[]> {
   const scope = { groupId: params.groupId, weekStartDate: params.weekStartDate };
 
+  // The group's OWN storefront. Passing it is what makes two groups in two
+  // countries see two different real prices rather than sharing one row.
+  const group = await groups.findGroupById(ctx.db, params.groupId);
+
   const shared = await steam.listSharedGamesAggregate(ctx.db, {
     ...scope,
+    countryCode: group?.countryCode ?? 'US',
     minOwners: MIN_AGGREGATE_HEADCOUNT,
     multiplayerOnly: params.multiplayerOnly ?? true,
     // High enough not to matter. The old 200 truncated by owner count BEFORE
@@ -224,10 +230,17 @@ export async function resolveNomination(
         priceCents: best.priceCents,
         currency: best.currency,
         priceCountry: params.countryCode.toUpperCase(),
-        // storesearch prices one storefront per call; the reference price is
-        // filled in by the metadata refresh rather than by a second search.
         priceCentsUsd: params.countryCode.toUpperCase() === 'US' ? best.priceCents : null,
         storeUrl: best.storeUrl,
+      });
+
+      // Also into the per-country price table, so the next group on this
+      // storefront gets it free and the budgeted refresh never has to.
+      await steam.upsertAppPrice(ctx.db, {
+        appId: best.appId,
+        countryCode: params.countryCode,
+        priceCents: best.priceCents,
+        currency: best.currency,
       });
 
       return {

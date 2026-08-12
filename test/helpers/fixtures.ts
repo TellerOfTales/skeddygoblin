@@ -10,6 +10,7 @@ import * as groups from '../../src/db/repositories/groups.js';
 import * as memberships from '../../src/db/repositories/memberships.js';
 import * as users from '../../src/db/repositories/users.js';
 import type { GroupRecord, MembershipRole, UserRecord } from '../../src/db/repositories/types.js';
+import * as steam from '../../src/db/repositories/steam.js';
 import type { AppContext } from '../../src/services/context.js';
 
 export async function makeGroup(
@@ -63,4 +64,34 @@ export function notifiable(user: UserRecord) {
     preferredChannel: user.preferredChannel,
     phoneE164: user.phoneE164,
   };
+}
+
+/**
+ * Seeds an app's facts AND its prices.
+ *
+ * Prices moved to steam_app_price, keyed by (app_id, country_code), so seeding
+ * metadata alone now leaves a game with no price anywhere. This writes the
+ * local row plus the US reference, which is what the real refresh does.
+ */
+export async function upsertGame(
+  ctx: AppContext,
+  meta: Parameters<typeof steam.upsertAppMeta>[1],
+): Promise<void> {
+  await steam.upsertAppMeta(ctx.db, meta);
+
+  const country = (meta.priceCountry ?? 'US').toUpperCase();
+  await steam.upsertAppPrice(ctx.db, {
+    appId: meta.appId,
+    countryCode: country,
+    priceCents: meta.priceCents,
+    currency: meta.currency,
+  });
+  if (country !== 'US') {
+    await steam.upsertAppPrice(ctx.db, {
+      appId: meta.appId,
+      countryCode: 'US',
+      priceCents: meta.priceCentsUsd,
+      currency: 'USD',
+    });
+  }
 }

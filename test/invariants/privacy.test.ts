@@ -148,6 +148,8 @@ describe('P2: repository export naming discipline', () => {
     'countVibesAggregate',
     // Counts only: how many have not linked Steam, never which of them.
     'countUnlinkedMembersAggregate',
+    // Storefronts in use. A list of country codes, attached to nobody.
+    'listActiveCountryCodesAggregate',
     'countAttendanceAggregate',
     'countSlotsForGroup',
     'countMembers',
@@ -171,6 +173,9 @@ describe('P2: repository export naming discipline', () => {
     'isMember',
     // Writes taking an explicit user id, returning nothing.
     'removeMembership',
+    // Catalogue writes and work queues: app ids and prices, no user anywhere.
+    'upsertAppPrice',
+    'listAppIdsNeedingPrice',
     'isOrganizer',
     'setRole',
     // existence checks - a boolean, not a preference
