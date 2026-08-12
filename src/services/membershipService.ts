@@ -167,3 +167,46 @@ export async function listMyGroups(
 
   return { userId: user.id, groups: found };
 }
+
+/**
+ * Resolves a member for a group we already know exists, creating the user row
+ * if this is their first interaction but NOT joining them to the group.
+ *
+ * The distinction matters for the Join button: tapping it is what joins you,
+ * so resolving must not do it as a side effect - otherwise the button would be
+ * decorative and "take me off" could never stick.
+ */
+export async function resolveActorInGroup(
+  ctx: AppContext,
+  params: { discordUserId: string; groupId: number },
+): Promise<{ user: UserRecord; group: GroupRecord }> {
+  const group = await groups.findGroupById(ctx.db, params.groupId);
+  if (!group) throw new DomainError('GROUP_NOT_FOUND');
+
+  const user = await users.ensureUser(ctx.db, params.discordUserId, {
+    timezone: config.defaultGroupTimezone,
+  });
+  return { user, group };
+}
+
+/** Opting back out. Their answers stay; they simply stop being asked. */
+export async function leaveGroup(ctx: AppContext, userId: number, groupId: number): Promise<void> {
+  await memberships.removeMembership(ctx.db, userId, groupId);
+}
+
+/** Creates or finds the group for a guild, with onboarding defaults applied. */
+export async function ensureGroupForGuild(
+  ctx: AppContext,
+  params: {
+    discordGuildId: string;
+    name: string;
+    timezone: string;
+    announceChannelId?: string;
+  },
+): Promise<GroupRecord> {
+  return groups.ensureGroup(ctx.db, params.discordGuildId, {
+    name: params.name,
+    timezone: params.timezone,
+    ...(params.announceChannelId ? { announceChannelId: params.announceChannelId } : {}),
+  });
+}

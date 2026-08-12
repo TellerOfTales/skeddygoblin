@@ -8,6 +8,8 @@ import type {
 import type { AppContext } from '../../services/context.js';
 import * as availability from './availability.js';
 import * as games from './games.js';
+import * as help from './help.js';
+import * as invite from './invite.js';
 import * as linkSteam from './linkSteam.js';
 import * as overlap from './overlap.js';
 import * as propose from './propose.js';
@@ -21,7 +23,17 @@ export interface Command {
   autocomplete?(interaction: AutocompleteInteraction, ctx: AppContext): Promise<void>;
 }
 
-const ALL: Command[] = [availability, games, linkSteam, overlap, propose, setup, status];
+const ALL: Command[] = [
+  availability,
+  games,
+  help,
+  invite,
+  linkSteam,
+  overlap,
+  propose,
+  setup,
+  status,
+];
 
 export const commands: ReadonlyMap<string, Command> = new Map(
   ALL.map((command) => [command.data.name, command]),

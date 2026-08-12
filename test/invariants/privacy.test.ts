@@ -169,6 +169,8 @@ describe('P2: repository export naming discipline', () => {
     'ensureMembership',
     'findMembership',
     'isMember',
+    // Writes taking an explicit user id, returning nothing.
+    'removeMembership',
     'isOrganizer',
     'setRole',
     // existence checks - a boolean, not a preference

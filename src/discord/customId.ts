@@ -21,7 +21,7 @@ export const CUSTOM_ID_VERSION = 'v1';
 export const CUSTOM_ID_MAX_LENGTH = 100;
 
 /** Router namespaces. One handler module per namespace. */
-export const NAMESPACES = ['av', 'buzz', 'sess', 'gv', 'grp'] as const;
+export const NAMESPACES = ['av', 'buzz', 'sess', 'gv', 'grp', 'join'] as const;
 export type Namespace = (typeof NAMESPACES)[number];
 
 export interface ParsedCustomId {

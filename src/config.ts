@@ -178,6 +178,10 @@ export interface DiscordConfig {
   guildId: string | undefined;
   announceChannelId: string | undefined;
   autoRegisterCommands: boolean;
+  /** Where /invite and the onboarding post send people. */
+  inviteUrl: string;
+  /** Landing page carrying the terms and privacy policy. */
+  websiteUrl: string;
 }
 
 let discordConfig: DiscordConfig | undefined;
@@ -199,8 +203,21 @@ export function requireDiscordConfig(): DiscordConfig {
     guildId: c.optionalSnowflake('DISCORD_GUILD_ID'),
     announceChannelId: c.optionalSnowflake('ANNOUNCE_CHANNEL_ID'),
     autoRegisterCommands: c.boolean('AUTO_REGISTER_COMMANDS', false),
+    /**
+     * Defaulted rather than required. The install URL is derivable from the
+     * client id, and a bot that cannot tell people how to add it because one
+     * env var is unset would be a silly way to lose a server.
+     */
+    inviteUrl: c.optional('INVITE_URL') ?? '',
+    websiteUrl: c.optional('WEBSITE_URL') ?? 'https://connectioneering.design/skeddy-goblin',
   };
   c.failFast('Discord');
+
+  if (!resolved.inviteUrl) {
+    resolved.inviteUrl =
+      `https://discord.com/oauth2/authorize?client_id=${resolved.clientId}` +
+      '&permissions=277025508352&scope=bot%20applications.commands';
+  }
 
   registerSecret(resolved.token);
   discordConfig = Object.freeze(resolved);

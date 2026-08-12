@@ -28,6 +28,7 @@ import { registerGuildCommandsAtBoot } from './discord/registerCommands.js';
 import { DiscordDMNotifier } from './notify/DiscordDMNotifier.js';
 import { NotifierRegistry } from './notify/registry.js';
 import { publishWeeklyBoard } from './discord/weeklyBoard.js';
+import { registerOnboarding } from './discord/onboarding.js';
 import { startScheduler } from './scheduler/index.js';
 import { startHttpServer, type BootPhase } from './http/server.js';
 import { config as appConfig } from './config.js';
@@ -80,6 +81,10 @@ async function main(): Promise<void> {
     phase = 'registering-commands';
     await registerGuildCommandsAtBoot(ready);
   }
+
+  // Onboarding fires on guildCreate, so it must be listening before anyone can
+  // add the bot - which is any moment after login.
+  registerOnboarding(ctx, ready);
 
   // Posting is the one scheduler job that genuinely needs a Discord channel, so
   // it is injected rather than reached for from inside the service layer.

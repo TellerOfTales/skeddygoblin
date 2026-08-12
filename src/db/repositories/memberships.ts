@@ -101,3 +101,15 @@ export async function listGroupIdsForSelf(db: Queryable, selfUserId: UserId): Pr
   );
   return result.rows.map((row) => row.group_id);
 }
+
+/** Removes a membership. Idempotent; their weekly answers are left alone. */
+export async function removeMembership(
+  db: Queryable,
+  userId: UserId,
+  groupId: GroupId,
+): Promise<void> {
+  await db.query('DELETE FROM group_membership WHERE user_id = $1 AND group_id = $2', [
+    userId,
+    groupId,
+  ]);
+}
