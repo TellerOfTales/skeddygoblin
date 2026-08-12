@@ -173,8 +173,11 @@ describe('vibe-filtered suggestions', () => {
 
       expect(suggestions[0]?.name).toBe('Counter-Strike 2');
       expect(suggestions[0]?.vibeFit).toBe(1);
-      // Stardew suits nobody's stated mood, so it drops out entirely.
-      expect(suggestions.map((game) => game.name)).not.toContain('Stardew Valley');
+      // Stardew suits nobody's stated mood, so it ranks last - but it is still
+      // a game they all own and can all play, so hiding it would be throwing
+      // away a real option over a vocabulary mismatch.
+      expect(suggestions.at(-1)?.name).toBe('Stardew Valley');
+      expect(suggestions.at(-1)?.vibeFit).toBe(0);
     });
   });
 
@@ -427,7 +430,7 @@ describe('weekly library re-sync', () => {
  * trust; "matches Co-op, Survival" is one you can argue with.
  */
 describe('suggestions explain themselves', () => {
-  it("only offers games that match at least one of the week's vibes", async () => {
+  it("puts games matching the week's vibes first, and says which they matched", async () => {
     await withRollback(async (ctx) => {
       const group = await makeGroup(ctx);
       const week = currentWeek(ctx, group.timezone);
@@ -481,12 +484,99 @@ describe('suggestions explain themselves', () => {
       const games = await suggestGames(ctx, { groupId: group.id, weekStartDate: week });
       const names = games.map((game) => game.name);
 
-      expect(names).toContain('Co-op Survival Thing');
-      expect(names).not.toContain('Pure Racing Sim');
+      // Ranked, not filtered: the racing sim is still shared and playable, it
+      // just is not what anyone asked for this week.
+      expect(names[0]).toBe('Co-op Survival Thing');
+      expect(names.at(-1)).toBe('Pure Racing Sim');
 
       const match = games.find((game) => game.name === 'Co-op Survival Thing')!;
       expect(match.matchedVibes.sort()).toEqual(['Co-op', 'Survival']);
       expect(match.vibeFit).toBe(1);
+    });
+  });
+});
+
+/**
+ * Two bugs that made real, obvious co-op games invisible.
+ */
+describe('shared games that should never have been hidden', () => {
+  it('ranks a game with no matching genre below the fits, rather than dropping it', async () => {
+    await withRollback(async (ctx) => {
+      const group = await makeGroup(ctx);
+      const week = currentWeek(ctx, group.timezone);
+      const members = [await makeMember(ctx, group), await makeMember(ctx, group)];
+
+      await steam.upsertAppMeta(ctx.db, {
+        appId: 6001,
+        name: 'Fits The Mood',
+        categories: ['Online Co-op', 'Multi-player'],
+        genres: ['Adventure'],
+        multiplayer: true,
+        priceCents: 999,
+        currency: 'GBP',
+        priceCentsUsd: 1299,
+        priceCountry: 'GB',
+        storeUrl: 'https://store.steampowered.com/app/6001',
+      });
+      // Everyone owns it, everyone can play it, but Steam's official genres
+      // simply do not carry the word the group used. That is a vocabulary gap,
+      // not a wrong game.
+      await steam.upsertAppMeta(ctx.db, {
+        appId: 6002,
+        name: 'Shared But Unlabelled',
+        categories: ['Online Co-op', 'Multi-player'],
+        genres: ['Indie'],
+        multiplayer: true,
+        priceCents: 799,
+        currency: 'GBP',
+        priceCentsUsd: 999,
+        priceCountry: 'GB',
+        storeUrl: 'https://store.steampowered.com/app/6002',
+      });
+
+      const owned = [
+        { appId: 6001, gameName: 'Fits The Mood', multiplayer: true },
+        { appId: 6002, gameName: 'Shared But Unlabelled', multiplayer: true },
+      ];
+      for (const member of members) {
+        await steam.replaceLibraryForSelf(ctx.db, member.id, owned);
+        await submit(ctx, {
+          userId: member.id,
+          groupId: group.id,
+          weekStartDate: week,
+          sessionsCommitted: 1,
+          slots: [{ dayOfWeek: 2, window: 'evening' }],
+          vibes: ['Adventure'],
+        });
+      }
+
+      const games = await suggestGames(ctx, { groupId: group.id, weekStartDate: week });
+
+      expect(games.map((game) => game.name)).toEqual(['Fits The Mood', 'Shared But Unlabelled']);
+      expect(games[1]!.vibeFit).toBe(0);
+    });
+  });
+
+  it('fetches metadata for the most-shared apps first, not the oldest', async () => {
+    await withRollback(async (ctx) => {
+      const group = await makeGroup(ctx);
+      const [a, b] = [await makeMember(ctx, group), await makeMember(ctx, group)];
+
+      // A 2004-era app id nobody shares, and a recent one everybody owns.
+      await steam.replaceLibraryForSelf(ctx.db, a.id, [
+        { appId: 240, gameName: 'Ancient Thing', multiplayer: true },
+        { appId: 3_241_660, gameName: 'This Year Co-op Hit', multiplayer: true },
+      ]);
+      await steam.replaceLibraryForSelf(ctx.db, b.id, [
+        { appId: 3_241_660, gameName: 'This Year Co-op Hit', multiplayer: true },
+      ]);
+
+      const queue = await steam.listAppIdsNeedingMeta(ctx.db, { limit: 10, staleAfterDays: 30 });
+
+      // Ordering by app_id put every game from twenty years ago ahead of the
+      // one the group actually shares - and a game with no metadata cannot be
+      // suggested at all.
+      expect(queue[0]).toBe(3_241_660);
     });
   });
 });

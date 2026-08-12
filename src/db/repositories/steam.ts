@@ -122,17 +122,33 @@ export async function upsertAppMeta(db: Queryable, meta: AppMeta): Promise<void>
 }
 
 /** App ids we have no metadata for, or whose metadata has gone stale. */
+/**
+ * Which apps to fetch metadata for next, MOST SHARED FIRST.
+ *
+ * The order matters more than it looks. This used to be `ORDER BY app_id`,
+ * which is chronological by Steam release - so every game from 2004 was fetched
+ * before anything from this year, and the recent co-op titles a group actually
+ * wants to play sat at the very back of a queue thousands of apps long. Since a
+ * game with no metadata is invisible to the suggester entirely (its multiplayer
+ * flag defaults to false), those games could not be suggested at all until the
+ * backlog drained.
+ *
+ * Owner count first: a game six of you own is worth knowing about before one
+ * only one person has. Newest first as the tiebreak, because that is where the
+ * games people are currently talking about live.
+ */
 export async function listAppIdsNeedingMeta(
   db: Queryable,
   params: { limit: number; staleAfterDays: number },
 ): Promise<number[]> {
   const result = await db.query<{ app_id: number }>(
-    `SELECT DISTINCT c.app_id
+    `SELECT c.app_id
      FROM steam_library_cache c
      LEFT JOIN steam_app_meta m ON m.app_id = c.app_id
      WHERE m.app_id IS NULL
         OR m.fetched_at < now() - ($2 || ' days')::interval
-     ORDER BY c.app_id
+     GROUP BY c.app_id
+     ORDER BY COUNT(*) DESC, c.app_id DESC
      LIMIT $1`,
     [params.limit, String(params.staleAfterDays)],
   );

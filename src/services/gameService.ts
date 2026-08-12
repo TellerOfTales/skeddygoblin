@@ -91,17 +91,25 @@ export async function suggestGames(
     ...scope,
     minOwners: MIN_AGGREGATE_HEADCOUNT,
     multiplayerOnly: params.multiplayerOnly ?? true,
-    limit: 200,
+    // High enough not to matter. The old 200 truncated by owner count BEFORE
+    // the vibe filter ran, so in a group with a big shared library the games
+    // that best fit the mood could be cut before anything looked at the mood.
+    limit: 5_000,
   });
   const weekVibes = await vibes.countVibesAggregate(ctx.db, scope);
 
+  // Ranked by fit, NOT filtered by it. A game the group shares and can all play
+  // belongs on the list even when Steam's genres do not happen to line up with
+  // the words picked this week - Steam's official categories are much coarser
+  // than how people describe a mood, so a zero score often means "we lack the
+  // vocabulary", not "wrong game". Dropping those made real, obvious
+  // suggestions vanish with no explanation.
   return shared
     .map((game) => ({
       ...game,
       vibeFit: vibeScore(game, weekVibes),
       matchedVibes: matchedVibes(game, weekVibes),
     }))
-    .filter((game) => game.vibeFit > 0)
     .sort(
       (a, b) =>
         b.vibeFit - a.vibeFit ||

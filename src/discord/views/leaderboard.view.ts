@@ -82,9 +82,17 @@ export function leaderboardView(params: LeaderboardParams): BaseMessageOptions {
     // Named for the mood, because that is what picked them: only shared games
     // (two or more owners) that match at least one of this week's vibes get
     // here, ranked by the share of those vibes they satisfy.
+    // Only claim a mood when something in the list actually matched it. The
+    // list is ranked by fit, not filtered by it, so a shared game with no
+    // matching Steam genre still appears - titling that "games that fit co-op"
+    // would be a claim the list does not support.
     const moodNames = params.topVibes.map((vibe) => VIBE_LABELS[vibe.tag].toLowerCase());
+    const anyMatched = params.games.some((game) => (game.matchedVibes?.length ?? 0) > 0);
     embed.addFields({
-      name: moodNames.length > 0 ? `Games that fit ${moodNames.join(', ')}` : 'Games you all share',
+      name:
+        moodNames.length > 0 && anyMatched
+          ? `Games that fit ${moodNames.join(', ')}`
+          : 'Games you all share',
       value: params.games
         .map((game) => {
           const why =
